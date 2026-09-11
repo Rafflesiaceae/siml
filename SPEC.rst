@@ -687,7 +687,8 @@ Keys:
 10. Error Messages
 ==================
 
-Implementations MUST have the following **separate** error messages:
+Implementations MUST have the following **separate** error messages (always
+prefer more specific ones to more general ones when multiple apply):
 
 Line endings and physical line length:
 
@@ -723,7 +724,7 @@ Indentation and nesting:
 * indentation must be a multiple of 2 spaces
 * wrong indentation, expected: X
 * nested node indentation mismatch, expected X got Y
-* node kind mixing at indent X is forbidden
+* node kind mixing within the same node at indent X is forbidden
 
 Keys and mapping entries:
 
@@ -742,6 +743,7 @@ Sequence items:
 Scalars:
 
 * scalar must not start with '|'
+* scalar must not start with '#'
 
 Comments:
 
@@ -756,7 +758,6 @@ Inline values and flow sequences:
 
 * inline value is empty
 * inline value too long (max 2048 bytes)
-* unterminated flow sequence
 * unterminated flow sequence on the same line
 * flow sequence contains whitespace (forbidden)
 * empty flow sequence element
@@ -764,7 +765,7 @@ Inline values and flow sequences:
 * flow-scalar too long (max 128 bytes)
 * excess non-comment characters after flow sequence termination
 * inline comments not allowed inside flow sequence
-* scalar must not start with ``|``
+* flow-scalar must not start with '#'
 
 Literal block scalars:
 
