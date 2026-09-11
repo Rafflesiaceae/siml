@@ -45,6 +45,13 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 14 [RFC2119] [RFC8174] when, and only when, they appear in all
 capitals, as shown here.
 
+Byte lengths
+------------
+
+All maximum lengths in this specification are measured in **bytes** of the
+UTF-8 encoded input, unless explicitly stated otherwise.
+
+
 1. Data model (semantic layer)
 ==============================
 
@@ -60,6 +67,7 @@ Documents MUST be non-empty:
 
 * A document mapping MUST have at least one entry.
 * A document sequence MUST have at least one item.
+
 
 2. Concrete syntax and round-tripping
 =====================================
@@ -146,6 +154,22 @@ Outside literal block scalar content (section 7.2), SIML forbids trailing spaces
 * Every non-block-content line MUST end immediately at the last non-space
   character (followed by the LF).
 
+3.6 Maximum physical line length
+--------------------------------
+
+To support fixed-size, streaming parsers, SIML defines a maximum physical line
+length.
+
+* The length of any single physical line, **excluding** its terminating LF,
+  MUST be at most **4608 bytes**.
+* Any line longer than this limit MUST cause a parsing error.
+
+This maximum applies to **all** lines, including:
+
+* structural lines (mapping entries, sequence items, document separators),
+* comment lines,
+* and literal block scalar content lines.
+
 
 4. Document stream
 ==================
@@ -193,6 +217,11 @@ A comment line is a line of the form:
 * **exactly one space**,
 * **one or more** characters of comment text (up to end of line).
 
+Additional size limits:
+
+* The comment text (the bytes after the required ``"# "`` prefix) MUST be at
+  most **512 bytes**.
+
 Rules:
 
 * Comment line indentation MUST be a multiple of 2 spaces (0, 2, 4, …).
@@ -226,6 +255,12 @@ Inline comment formatting is:
 * **N spaces** immediately before ``#`` (``N >= 1``), and
 * **exactly one space** immediately after ``#``, then
 * **one or more** characters of comment text (up to end of line).
+
+Additional size limits:
+
+* ``N`` (spaces immediately before ``#``) MUST be in the range **1..255**.
+* The inline comment text (the bytes after the required ``"# "`` prefix) MUST be
+  at most **256 bytes**.
 
 Examples::
 
@@ -376,6 +411,7 @@ Flow element constraints:
   - MUST be non-empty
   - MUST NOT contain ``,``, ``]``, or newline
   - MUST NOT start with ``[`` or ``|``
+  - MUST be at most **128 bytes**
 
 6.4 Inline values (scalar / flow sequence / literal marker)
 -----------------------------------------------------------
@@ -394,6 +430,18 @@ An inline value is exactly one of:
 Inline values MUST be non-empty.
 
 Inline comments MAY follow inline values per section 5.2.
+
+Additional size limits:
+
+* The inline value text (the bytes of the value before any inline comment)
+  MUST be at most **2048 bytes**.
+
+This limit applies equally to:
+
+* plain scalar values on a single line, and
+* the complete single-line ``[...]`` representation of a flow sequence (before
+  any inline comment).
+
 
 7. Scalars
 ==========
@@ -422,6 +470,11 @@ Constraints:
 * MUST NOT contain newline
 * MUST NOT start with ``[`` or ``|``
 
+Additional size limits:
+
+* Plain scalar text on a single line (before any inline comment) MUST be at most
+  **2048 bytes** (section 6.4).
+
 The character ``#`` MAY appear as literal text if it does not start an inline
 comment per section 5.2.
 
@@ -445,6 +498,12 @@ Block scalar content rules:
   verbatim as the content line text.
 * Empty lines (completely empty) are allowed and are part of the content.
 * SIML MUST NOT trim trailing blank lines in the block.
+
+Additional size limits:
+
+* Each literal block scalar **content line**, after stripping the fixed
+  indentation ``H + 2``, MUST be at most **4096 bytes** (excluding its
+  terminating LF).
 
 Semantic value:
 
@@ -472,6 +531,13 @@ SIML nesting is defined purely by indentation, using an indentation stack.
   - a document separator ``---`` at indentation 0, or
   - EOF.
 
+Maximum nesting depth:
+
+* The maximum nesting depth (number of simultaneously-open containers)
+  MUST be at most **32**.
+* Inputs that would require a deeper indentation stack MUST cause a parsing
+  error.
+
 Because indentation is fixed (2 spaces per level) and structure lines are
 restricted, a streaming parser only needs:
 
@@ -486,6 +552,10 @@ restricted, a streaming parser only needs:
 Keys are unquoted identifiers:
 
 * regex: ``[a-zA-Z_][a-zA-Z0-9_.-]*``
+
+Additional size limits:
+
+* A key MUST be at most **128 bytes**.
 
 Keys:
 
@@ -521,7 +591,8 @@ SIML forbids (MUST NOT support):
 
    stream         ::= comment* document (separator comment* document)* comment* EOF
 
-   separator      ::= '---' ( spaces1plus '# ' NONEMPTY_TEXT )? EOL
+   ; Per section 4.1, '---' MUST NOT have inline comments.
+   separator      ::= '---' EOL
 
    document       ::= container_at_indent(0)
 
@@ -559,6 +630,10 @@ Blank lines and whitespace-only lines are forbidden outside literal block scalar
 content and therefore do not appear in the grammar.
 
 Literal block scalar content is defined operationally in section 7.2.
+
+Maximum sizes (key length, inline value length, comment lengths, etc.) are
+defined normatively in the corresponding sections and are not expressed in this
+grammar.
 
 
 12. Implementation intent
