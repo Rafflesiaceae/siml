@@ -104,7 +104,7 @@ Simple scalar text
 
 A simple scalar is:
 
-* A non-empty sequence of characters that does **not** contain:
+* A sequence of characters that does **not** contain:
 
   - a newline,
   - a comma (``","``), or
@@ -135,7 +135,7 @@ The parser determines the scalar text as:
 * everything after ``key: `` up to the end of the line, then
 * stripping trailing spaces and any inline comment according to section 6.
 
-The resulting text must be a valid simple scalar.
+The resulting text must be a valid simple scalar (it may be empty).
 
 5.2 List values
 ~~~~~~~~~~~~~~~

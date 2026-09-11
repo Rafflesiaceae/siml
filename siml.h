@@ -317,11 +317,6 @@ static size_t siml_scalar_strip(const char *v, size_t len) {
         --end;
     }
 
-    if (end == 0) {
-        /* Empty scalars are not allowed by the SIML spec */
-        return (size_t)(-1);
-    }
-
     return end;
 }
 
