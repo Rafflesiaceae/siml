@@ -153,16 +153,22 @@ Any such line MUST cause a parsing error.
 3.5 Trailing spaces
 -------------------
 
-SIML forbids trailing spaces, except after a flow sequence inline value
-(section 6.3.2).
+SIML forbids trailing spaces.
 
 * Every line MUST end immediately at the last non-space
   character (followed by the LF).
 
 This rule applies to **all** lines, including literal block scalar content
-lines (section 7.2), **except** that a line whose inline value is a flow
-sequence MAY have trailing spaces after the closing ``]`` (before any inline
-comment or end of line).
+lines (section 7.2).
+
+Notes:
+
+* Lines with an inline comment necessarily include one or more spaces before the
+  comment ``#`` (section 5.2). Those spaces are not “trailing spaces” because
+  they are followed by ``#`` on the same line.
+* In particular, for flow sequences (section 6.3.2), spaces after the closing
+  ``]`` are allowed **only** if they are immediately followed by an inline
+  comment ``# ...``; spaces after ``]`` followed by end-of-line are forbidden.
 
 3.6 Maximum physical line length
 --------------------------------
@@ -307,6 +313,9 @@ Notes:
 
 * In a plain scalar value, a ``#`` that is NOT preceded by whitespace is literal
   text, not a comment: ``mode: fast#1`` stores ``fast#1``.
+* Outside literal block scalar content, any ``#`` that is preceded by whitespace
+  is reserved for comments; if it does not match the required inline comment
+  form ``<spaces># <non-empty-text>``, it MUST cause a parsing error.
 * Inside flow sequences, a scalar atom MUST NOT start with ``#``; ``[#foo]`` is
   invalid even though the ``#`` is not preceded by whitespace.
 * For flow sequences, inline comments MAY appear only after the complete
@@ -342,8 +351,7 @@ Outside literal block scalar content, every non-comment line MUST be one of:
 * mapping entry line (section 6.2)
 * sequence item line (section 6.3)
 
-Any other line (including blank lines or whitespace-only lines) MUST cause a
-parsing error.
+Any other line MUST cause a parsing error (see ``unknown line form`` in section 10).
 
 6.2 Mappings
 ------------
@@ -427,13 +435,12 @@ Rules:
 * The first character MUST be ``[`` and the last character before any inline
   comment MUST be ``]``.
 * Immediately after the closing ``]`` there MUST be either:
-  - end of line,
-  - one or more spaces then end of line, or
+  - end of line, or
   - one or more spaces then an inline comment as defined in section 5.2
     (i.e. one or more spaces, then ``#``, then exactly one space, then non-empty
     text).
-  Any other trailing **non-space** characters after ``]`` MUST cause a parsing
-  error.
+  Any other trailing characters after ``]`` MUST cause a parsing error.
+* Spaces after ``]`` followed by end-of-line are forbidden (section 3.5).
 * Inline comments MUST NOT appear inside the flow sequence (i.e. before the
   closing ``]``).
 * **No whitespace is allowed anywhere inside** the brackets.
@@ -449,7 +456,7 @@ Flow element constraints:
 
 * Scalar atom rules:
   - MUST be non-empty
-  - MUST NOT contain ``,``, ``]``, or newline
+  - MUST NOT contain ``,``, ``]``, ``[``, or newline
   - MUST NOT start with ``#``
   - MUST NOT start with ``|``
   - MUST be at most **128 bytes**
@@ -546,6 +553,7 @@ Block scalar content rules:
 * Every **non-blank** content line MUST start with **at least** ``H + 2`` spaces.
   Exactly ``H + 2`` spaces are stripped; any additional leading spaces become
   part of the scalar text.
+  (Extra indentation is allowed because it is semantic content.)
 * Blank lines (empty lines) are allowed **only** when they occur **between
   non-blank content lines**. Leading or trailing blank lines are forbidden.
 * Lines containing only spaces or tabs are forbidden.
@@ -575,6 +583,61 @@ Inside literal block scalar content:
 
 8. Nesting and termination (indent stack rules)
 ===============================================
+
+8.1 Unified indentation handling algorithm (structural lines and comments)
+--------------------------------------------------------------------------
+
+Outside literal block scalar content, parsing proceeds line-by-line using an
+indentation stack.
+
+State:
+
+* ``stack``: indentation levels (in spaces) of currently-open nodes
+* ``pending``: either “none”, or a required indentation ``P`` for the first
+  structural line of a nested node introduced by a header-only ``key:`` or ``-``
+
+Algorithm for each incoming non-block-scalar physical line:
+
+1. Compute ``C`` = count of leading spaces.
+   * If any tab occurs outside block scalar content: error ``tabs are not allowed here``.
+   * If ``C`` is not a multiple of 2: error ``indentation must be a multiple of 2 spaces``.
+
+2. If the line is blank or whitespace-only: error per section 3.4.
+
+3. If ``pending`` is set to ``P`` (expecting the first structural line of a
+   nested node at indent ``P``):
+   * If the line is a comment line, it MUST have indentation exactly ``P``.
+     Attach it as leading trivia for the nested node at ``P`` and continue.
+     (Do not clear ``pending``.)
+   * Otherwise (non-comment structural line), it MUST have indentation exactly
+     ``P``. If not, error ``nested node indentation mismatch, expected X got Y``.
+     Clear ``pending`` and continue processing the structural line at indent ``P``.
+
+4. Dedent (applies uniformly to comments and structural lines):
+   While ``stack`` is non-empty and top(stack) > ``C``, pop(stack).
+
+5. If the line is a comment line:
+   * Its indentation MUST be one of the open levels now in ``stack`` (including
+     0 when appropriate). Otherwise error ``comment indentation must match current nesting level``.
+   * Attach the comment to indentation level ``C``.
+   * Continue to next line. (Comments never push indent, never satisfy header-only nesting.)
+
+6. Otherwise, the line MUST be a structural line (mapping entry, sequence item,
+   or document separator). If it is none of these, error ``unknown line form``.
+
+7. Process the structural line according to sections 4 / 6 / 7:
+   * Header-only mapping entry ``key:`` or header-only sequence item ``-`` sets
+     ``pending`` to ``C+2`` and (by introducing a nested node) causes the nested
+     node indentation to be checked on the next non-comment structural line.
+   * When a nested node begins at indentation ``C+2``, that indentation level is
+     pushed onto ``stack`` as part of opening the nested node.
+   * Node termination is determined by subsequent dedent (step 4).
+
+This unified algorithm is the normative reference for how dedent interacts with
+comments and structural lines.
+
+8.2 Nesting and termination
+---------------------------
 
 SIML nesting is defined purely by indentation, using an indentation stack.
 
@@ -636,6 +699,10 @@ Whitespace rules:
 * whitespace-only lines are not allowed here
 * tabs are not allowed here
 * trailing spaces are not allowed here
+
+Structural forms:
+
+* unknown line form
 
 Document stream:
 
@@ -715,49 +782,69 @@ SIML forbids (MUST NOT support):
 * blank lines outside literal block scalar content
 * lines containing only spaces or tabs outside literal block scalar content
 * empty comments (``#`` / ``#␠``) anywhere outside literal block scalar content
+* arbitrary YAML “compact” forms such as interpreting ``- key: value`` as a
+  nested mapping node
+  (in SIML, to express a mapping item you MUST use ``-`` followed by an indented
+  nested node; ``- key: value`` is just a scalar string ``"key: value"``)
+
 
 12. Informal grammar (EBNF-ish)
 ===============================
 
 .. code-block:: text
 
-   stream         ::= comment* document (comment* separator comment* document)* comment* EOF
+   stream          ::= comment* document (comment* separator comment* document)* comment* EOF
 
    ; Per section 4.1, '---' MUST NOT have inline comments.
-   separator      ::= '---' EOL
+   separator       ::= '---' EOL
 
-   document       ::= non_scalar_node_at_indent(0)
+   document        ::= non_scalar_node_at_indent(0)
 
    non_scalar_node ::= mapping | sequence
    node            ::= mapping | sequence | scalar
 
-   mapping        ::= entry (comment* entry)*
-   entry          ::= INDENT key ':' EOL node_at_indent(INDENT+2)
-                   |  INDENT key ':' ' ' inline_value inline_comment? EOL
+   ; Within a node at indentation I, structural lines must be consistent (6.5).
+   mapping         ::= entry (comment* entry)*
+   sequence        ::= item  (comment* item )*
 
-   sequence       ::= item (comment* item)*
-   item           ::= INDENT '-' EOL node_at_indent(INDENT+2)
-                   |  INDENT '-' ' ' inline_value inline_comment? EOL
+   ; Header-only forms allow comment lines at indent (I+2) between the header and the
+   ; first nested structural line. Such comments are leading trivia and do not satisfy
+   ; the “must have a nested node” requirement.
+   entry           ::= INDENT key ':' EOL comment* node_at_indent(INDENT+2)
+                    |  INDENT key ':' ' ' inline_value inline_comment? EOL
 
-   inline_value   ::= '|'               ; literal block scalar
-                   |  flow_seq
-                   |  plain_scalar
+   item            ::= INDENT '-' EOL comment* node_at_indent(INDENT+2)
+                    |  INDENT '-' ' ' inline_value inline_comment? EOL
 
-   inline_comment ::= spaces1plus '# ' NONEMPTY_TEXT
+   inline_value    ::= '|'               ; literal block scalar
+                    |  flow_seq
+                    |  plain_scalar
 
-   flow_seq       ::= '[' ']' | '[' flow_elem (',' flow_elem)* ']'
-   flow_elem      ::= flow_seq | atom
-   atom           ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET)
-                      AND not starting with '|'
+   inline_comment  ::= spaces1plus '# ' NONEMPTY_TEXT
 
-   plain_scalar   ::= 1*(CHAR_EXCEPT_NEWLINE)
-                      AND not starting with '[' or '|'
-                      AND with optional inline_comment removed
+   ; Flow sequence is a single-line inline value. Whitespace inside brackets is forbidden.
+   ; Immediately after the closing ']' there must be either EOL or an inline comment
+   ; preceded by one or more spaces. (Spaces then EOL are forbidden by 3.5.)
+   flow_seq        ::= '[' ']' | '[' flow_elem (',' flow_elem)* ']'
 
-   comment        ::= comment_line
-   comment_line   ::= INDENT2N? '# ' NONEMPTY_TEXT EOL
+   flow_elem       ::= flow_seq | atom
 
-   INDENT2N       ::= 0 | 2 | 4 | ... spaces (no tabs)
+   ; Atom constraints (see 6.3.2):
+   ; - non-empty
+   ; - must not contain ',', ']', '[', or newline
+   ; - must not start with '#' or '|'
+   atom            ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET_LBRACKET)
+                       AND not starting with '#' or '|'
+
+   ; Plain scalar is the inline value text when it is neither '|' nor a flow sequence.
+   plain_scalar    ::= 1*(CHAR_EXCEPT_NEWLINE)
+                       AND not starting with '[' or '|'
+                       AND with optional inline_comment removed
+
+   comment         ::= comment_line
+   comment_line    ::= INDENT2N '# ' NONEMPTY_TEXT EOL
+
+   INDENT2N        ::= 0 | 2 | 4 | ... spaces (no tabs)
 
 Blank lines and whitespace-only lines are forbidden outside literal block scalar
 content and therefore do not appear in the grammar.
