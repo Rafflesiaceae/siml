@@ -77,4 +77,14 @@ fi
 FUZZ_ARGS+=("$@")
 
 echo "[fuzz] starting fuzzer ($([ "${FOREVER}" -eq 1 ] && echo 'running until Ctrl-C' || echo "stopping after ${DEFAULT_TIME} s"), ${DEFAULT_JOBS} jobs)..."
-exec "${FUZZER}" "${FUZZ_ARGS[@]}"
+"${FUZZER}" "${FUZZ_ARGS[@]}"
+rc=$?
+
+if [[ "${rc}" -eq 0 ]]; then
+    echo "[fuzz] clean run — removing logs and corpus cache..."
+    rm -f "${FUZZER}"
+    rm -f "${ROOT_DIR}"/fuzz-*.log
+    rm -rf "${CORPUS}"
+fi
+
+exit "${rc}"
