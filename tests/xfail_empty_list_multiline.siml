@@ -1,8 +1,0 @@
-id: empty_list_multiline
-tags: [
-  alpha,
-  ,
-  beta,
-]
-
-# vim: set ft=yaml:

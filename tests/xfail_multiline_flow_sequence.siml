@@ -2,6 +2,6 @@ id: list_missing_bracket_field
 tags: [
   alpha,
   beta,
+]
 other: value
-
 # vim: set ft=yaml:
