@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-"$ROOT_DIR/build"}"
 BIN="${BIN:-"$BUILD_DIR/siml-dump"}"
+BIN_ROUNDTRIP="${BIN_ROUNDTRIP:-"$BUILD_DIR/siml-roundtrip"}"
 TEST_DIR="$ROOT_DIR/tests"
 
 if [[ "${DEBUG:-}" != "" ]]; then
@@ -56,6 +57,11 @@ for siml in "$TEST_DIR"/*.siml; do
         else
             rm -f "$out"
         fi
+    fi
+
+    if ! "$BIN_ROUNDTRIP" "$siml"; then
+        echo "[test] FAILED (roundtrip mismatch): $siml" >&2
+        rc=1
     fi
 done
 

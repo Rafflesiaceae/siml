@@ -4,3 +4,4 @@ project('siml', 'c',
 )
 
 executable('siml-dump', 'siml-dump.c')
+executable('siml-roundtrip', 'siml-roundtrip.c')
