@@ -11,15 +11,16 @@
  *      libFuzzer saves the reproducer.
  *
  * Build and run:
- *   ./fuzzer.sh                     # compile if needed, seed corpus, run 60 s
- *   ./fuzzer.sh --forever           # run until Ctrl-C
- *   ./fuzzer.sh -- -max_total_time=300 # pass flags directly to libFuzzer
+ *   python3 fuzzer.py               # compile if needed, seed corpus, run 15 min
+ *   python3 fuzzer.py --forever     # run until Ctrl-C
+ *   python3 fuzzer.py -- -max_total_time=300  # pass flags to libFuzzer
+ *   meson compile fuzz -C build     # same as above via meson
  *
  * Or manually:
  *   clang -fsanitize=fuzzer,address -O1 -o fuzzer fuzzer.c
- *   ./fuzzer fuzz-corpus/ testcases/
+ *   ./fuzzer .cache/fuzzer/ testcases/
  *
- * Requires clang (libFuzzer is bundled — no extra packages needed).
+ * Requires clang with libFuzzer support (Linux and macOS).
  */
 
 #include "siml.h"

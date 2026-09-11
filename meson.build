@@ -13,15 +13,3 @@ test(
   args: files('tests.py'),
   depends: [siml_tool],
 )
-
-# fuzzer
-clang = find_program('clang', required: false)
-if clang.found()
-  custom_target(
-    'fuzzer',
-    input: 'fuzzer.c',
-    output: 'fuzzer',
-    command: [clang, '-fsanitize=fuzzer,address', '-O1', '-o', '@OUTPUT@', '@INPUT@'],
-    build_by_default: false,
-  )
-endif
