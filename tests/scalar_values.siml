@@ -23,3 +23,5 @@ trailing_comma_list: [
 id: scalar_fields
 comment_trimmed: value before comment   # trailing comment
 hash_literal: value#hash
+
+# vim: set ft=yaml:

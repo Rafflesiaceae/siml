@@ -3,3 +3,5 @@ tags: [
   alpha,
   beta,
 other: value
+
+# vim: set ft=yaml:
