@@ -1,0 +1,5 @@
+STREAM_START
+DOCUMENT_START
+MAPPING_START
+SCALAR key=id value='bad_leading'
+BLOCK_SCALAR_START key=text
