@@ -5,6 +5,7 @@
  * SIML reference parser v0.1
  *
  * Header-only, pure ANSI C89 implementation.
+ * Include in exactly one translation unit per binary.
  *
  * - No dynamic allocation.
  * - No I/O. The caller provides a line-reading callback.
@@ -329,7 +330,6 @@ siml_event_type siml_next(siml_parser *p, siml_event *ev);
 #endif
 
 /* ---------------- Implementation ---------------- */
-#ifdef SIML_IMPLEMENTATION
 
 #include <string.h> /* memcpy */
 
@@ -1999,7 +1999,5 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
         }
     }
 }
-
-#endif /* SIML_IMPLEMENTATION */
 
 #endif /* SIML_H_INCLUDED */

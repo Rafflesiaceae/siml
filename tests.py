@@ -9,7 +9,7 @@ from pathlib import Path
 def find_root():
     if 'MESON_SOURCE_ROOT' in os.environ:
         return Path(os.environ['MESON_SOURCE_ROOT'])
-    return Path(__file__).parent.parent.parent
+    return Path(__file__).parent
 
 
 def find_build():

@@ -967,11 +967,11 @@ file.
 14. Reference Implementation
 ============================
 
-* Header only.
+* Single-header library: include in exactly one translation unit per binary.
 * Pure ANSI C89.
 * No dynamic allocation.
 * No I/O. The caller provides a line-reading callback.
-* Pull parser API: the caller repeatedly calls siml_next() to obtain events.
+* Pull parser API: the caller repeatedly calls the parse function to obtain events.
 * All variable-sized buffers are held in a caller-supplied scratch buffer.
   Both the parser object and the scratch buffer may be stack- or
   statically-allocated and must outlive the parse session.
