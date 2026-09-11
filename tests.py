@@ -21,7 +21,7 @@ def find_build():
 root = find_root()
 build = find_build()
 siml_tool = Path(os.environ.get('SIML_TOOL', build / 'siml-tool'))
-test_dir = root / 'tests'
+test_dir = root / 'testcases'
 
 failed = 0
 
