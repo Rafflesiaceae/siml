@@ -1,3 +1,5 @@
 build/
-tests/*.out
-tests/*.err
+tests/
+
+testcases/*.out
+testcases/*.err
