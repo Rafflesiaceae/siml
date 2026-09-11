@@ -1,5 +1,13 @@
-item 0
-  first = 'one'
-
-item 1
-  second = 'two'
+STREAM_START
+DOCUMENT_START
+MAPPING_START
+SCALAR key=first value='one'
+MAPPING_END
+DOCUMENT_END
+DOCUMENT_START
+MAPPING_START
+SCALAR key=second value='two'
+COMMENT # vim: set ft=yaml:
+MAPPING_END
+DOCUMENT_END
+STREAM_END

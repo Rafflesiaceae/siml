@@ -19,7 +19,6 @@ siml_file_read_line(void *userdata, const char **out_line, size_t *out_len)
     int ch;
     size_t new_cap;
     char *new_buf;
-    int next;
 
     r = (struct file_reader *)userdata;
     if (!r || !out_line || !out_len) {
@@ -38,17 +37,8 @@ siml_file_read_line(void *userdata, const char **out_line, size_t *out_len)
     }
 
     len = 0;
-    ch = EOF;
     while ((ch = fgetc(r->fp)) != EOF) {
         if (ch == '\n') {
-            break;
-        }
-        if (ch == '\r') {
-            /* Treat CR or CRLF as end-of-line. */
-            next = fgetc(r->fp);
-            if (next != '\n' && next != EOF) {
-                ungetc(next, r->fp);
-            }
             break;
         }
         if (len + 1 >= r->cap) {
@@ -84,6 +74,15 @@ print_slice(const siml_slice *s)
     }
 }
 
+static void
+print_inline_comment(const siml_event *ev)
+{
+    if (ev->inline_comment.ptr && ev->inline_comment.len > 0) {
+        printf("  # (spaces=%u) ", ev->inline_comment_spaces);
+        print_slice(&ev->inline_comment);
+    }
+}
+
 int
 main(int argc, char **argv)
 {
@@ -92,8 +91,6 @@ main(int argc, char **argv)
     siml_parser parser;
     siml_event ev;
     struct file_reader reader;
-    int item_index;
-    int list_has_items;
     int rc;
 
     if (argc != 2) {
@@ -119,8 +116,6 @@ main(int argc, char **argv)
 
     siml_parser_init(&parser, siml_file_read_line, &reader);
 
-    item_index = -1;
-    list_has_items = 0;
     rc = 0;
     while (1) {
         siml_event_type t;
@@ -132,67 +127,82 @@ main(int argc, char **argv)
             break;
         }
         if (t == SIML_EVENT_STREAM_END) {
+            printf("STREAM_END\n");
             break;
         }
 
         switch (t) {
-        case SIML_EVENT_ITEM_START:
-            item_index += 1;
-            if (item_index > 0) {
-                printf("\n");
-            }
-            printf("item %d\n", item_index);
+        case SIML_EVENT_STREAM_START:
+            printf("STREAM_START\n");
             break;
-
-        case SIML_EVENT_FIELD_SCALAR:
-            printf("  ");
-            print_slice(&ev.key);
-            printf(" = '");
-            print_slice(&ev.value);
-            printf("'\n");
+        case SIML_EVENT_DOCUMENT_START:
+            printf("DOCUMENT_START\n");
             break;
-
-        case SIML_EVENT_FIELD_LIST_BEGIN:
-            list_has_items = 0;
+        case SIML_EVENT_DOCUMENT_END:
+            printf("DOCUMENT_END\n");
             break;
-
-        case SIML_EVENT_FIELD_LIST_ITEM:
-            list_has_items = 1;
-            printf("  ");
-            print_slice(&ev.key);
-            printf("[] = '");
-            print_slice(&ev.value);
-            printf("'\n");
-            break;
-
-        case SIML_EVENT_FIELD_LIST_END:
-            if (!list_has_items) {
-                printf("  ");
+        case SIML_EVENT_MAPPING_START:
+            printf("MAPPING_START");
+            if (ev.key.len > 0) {
+                printf(" key=");
                 print_slice(&ev.key);
-                printf("[] = ''\n");
             }
+            printf("\n");
             break;
-
-        case SIML_EVENT_FIELD_BLOCK_BEGIN:
-            printf("  ");
-            print_slice(&ev.key);
-            printf(" = '''\n");
+        case SIML_EVENT_MAPPING_END:
+            printf("MAPPING_END\n");
             break;
-
-        case SIML_EVENT_FIELD_BLOCK_LINE:
+        case SIML_EVENT_SEQUENCE_START:
+            printf("SEQUENCE_START");
+            if (ev.seq_style == SIML_SEQ_STYLE_FLOW) {
+                printf(" style=flow");
+            } else {
+                printf(" style=block");
+            }
+            if (ev.key.len > 0) {
+                printf(" key=");
+                print_slice(&ev.key);
+            }
+            print_inline_comment(&ev);
+            printf("\n");
+            break;
+        case SIML_EVENT_SEQUENCE_END:
+            printf("SEQUENCE_END\n");
+            break;
+        case SIML_EVENT_SCALAR:
+            printf("SCALAR");
+            if (ev.key.len > 0) {
+                printf(" key=");
+                print_slice(&ev.key);
+            }
+            printf(" value='");
+            print_slice(&ev.value);
+            printf("'");
+            print_inline_comment(&ev);
+            printf("\n");
+            break;
+        case SIML_EVENT_BLOCK_SCALAR_START:
+            printf("BLOCK_SCALAR_START");
+            if (ev.key.len > 0) {
+                printf(" key=");
+                print_slice(&ev.key);
+            }
+            print_inline_comment(&ev);
+            printf("\n");
+            break;
+        case SIML_EVENT_BLOCK_SCALAR_LINE:
+            printf("BLOCK_SCALAR_LINE '");
+            print_slice(&ev.value);
+            printf("'\n");
+            break;
+        case SIML_EVENT_BLOCK_SCALAR_END:
+            printf("BLOCK_SCALAR_END\n");
+            break;
+        case SIML_EVENT_COMMENT:
+            printf("COMMENT ");
             print_slice(&ev.value);
             printf("\n");
             break;
-
-        case SIML_EVENT_FIELD_BLOCK_END:
-            printf("'''\n");
-            break;
-
-        case SIML_EVENT_ITEM_END:
-        case SIML_EVENT_STREAM_START:
-        case SIML_EVENT_NONE:
-            break;
-
         default:
             break;
         }

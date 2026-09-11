@@ -2,7 +2,7 @@ id: r_fullscreen
 default: 1
 min: 0.0
 max: 1.0
-flags: [CVAR_ARCHIVE, CVAR_TEMP]
+flags: [CVAR_ARCHIVE,CVAR_TEMP]   # !important!
 description: |
   Lorem ipsum dolor sit amet, consectetur adipiscing elit.
   Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
@@ -18,5 +18,4 @@ description: |
 
   Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
   Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
-
 # vim: set ft=yaml:

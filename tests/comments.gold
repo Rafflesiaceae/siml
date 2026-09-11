@@ -1,10 +1,20 @@
-item 0
-  id = 'commented'
-  value = '42'
-  flags[] = 'ONE'
-  flags[] = 'TWO'
-  description = '''
-line1
-# this hash is not a comment
-line3
-'''
+STREAM_START
+COMMENT # full-line comment before the first item
+DOCUMENT_START
+MAPPING_START
+SCALAR key=id value='commented'
+SCALAR key=value value='42'  # (spaces=2) the answer
+COMMENT # another comment
+SEQUENCE_START style=flow key=flags  # (spaces=3) trailing comment
+SCALAR value='ONE'
+SCALAR value='TWO'
+SEQUENCE_END
+BLOCK_SCALAR_START key=description
+BLOCK_SCALAR_LINE 'line1'
+BLOCK_SCALAR_LINE '# this hash is not a comment'
+BLOCK_SCALAR_LINE 'line3'
+BLOCK_SCALAR_END
+COMMENT # vim: set ft=yaml:
+MAPPING_END
+DOCUMENT_END
+STREAM_END
