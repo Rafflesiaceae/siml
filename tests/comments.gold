@@ -4,7 +4,7 @@ item 0
   flags[] = 'ONE'
   flags[] = 'TWO'
   description = '''
-   line1
-   # this hash is not a comment
-   line3
+line1
+# this hash is not a comment
+line3
 '''

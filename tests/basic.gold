@@ -6,9 +6,9 @@ item 0
   flags[] = 'CVAR_ARCHIVE'
   flags[] = 'CVAR_TEMP'
   description = '''
-   Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-   Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-   Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
 '''
 
 item 1
@@ -18,8 +18,8 @@ item 1
   max = '10.0'
   flags[] = ''
   description = '''
-   Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
 
-   Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-   Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
 '''

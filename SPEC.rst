@@ -291,9 +291,10 @@ Rules:
 
 3. For each content line:
 
-   * If the line starts with at least one space, that leading space
-     is removed.
-   * Otherwise, the line is taken as-is.
+   * Determine the smallest number of leading spaces across all
+     non-blank content lines. Strip exactly that many leading spaces
+     from every line (blank lines are left empty). Tabs are left as-is,
+     matching YAML’s indentation stripping.
    * The resulting lines are joined with ``\n`` to form the value string.
    * The final newline at the end of the block is optional; an implementation
      may keep or drop it, as long as it is consistent.

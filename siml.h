@@ -60,13 +60,16 @@ enum siml_state {
 struct siml_parser {
     enum siml_state state;
     int item_index;
-    int block_pending_blank;
     char block_list_key[SIML_MAX_KEY];
     int block_list_has_items;
     int block_list_pending_scalar;
     int singleton_mode;
     int mode_determined;
     char literal_key[SIML_MAX_KEY];
+    char **block_lines;
+    size_t block_lines_count;
+    size_t block_lines_cap;
+    int block_min_indent;
     int debug_enabled;
     const struct siml_callbacks *cb;
     void *user_data;
@@ -244,6 +247,95 @@ siml_emit_end_literal(struct siml_parser *p,
     }
 }
 
+static void
+siml_block_buffer_reset(struct siml_parser *p)
+{
+    size_t i;
+
+    for (i = 0; i < p->block_lines_count; i++) {
+        free(p->block_lines[i]);
+    }
+    free(p->block_lines);
+    p->block_lines = NULL;
+    p->block_lines_count = 0;
+    p->block_lines_cap = 0;
+    p->block_min_indent = -1;
+}
+
+static int
+siml_block_buffer_append(struct siml_parser *p,
+                         const char *line,
+                         int indent_is_spaces)
+{
+    char *copy;
+
+    if (p->block_lines_count == p->block_lines_cap) {
+        size_t new_cap = p->block_lines_cap ? p->block_lines_cap * 2 : 8;
+        char **new_lines = (char **) realloc(p->block_lines,
+                                             new_cap * sizeof(char *));
+
+        if (!new_lines) {
+            fprintf(stderr, "out of memory buffering literal block\n");
+            return 1;
+        }
+        p->block_lines = new_lines;
+        p->block_lines_cap = new_cap;
+    }
+
+    copy = (char *) malloc(strlen(line) + 1);
+    if (!copy) {
+        fprintf(stderr, "out of memory buffering literal block line\n");
+        return 1;
+    }
+    strcpy(copy, line);
+    p->block_lines[p->block_lines_count++] = copy;
+
+    if (indent_is_spaces >= 0) {
+        if (p->block_min_indent == -1 ||
+            indent_is_spaces < p->block_min_indent) {
+            p->block_min_indent = indent_is_spaces;
+        }
+    }
+    return 0;
+}
+
+static int
+siml_block_buffer_emit(struct siml_parser *p)
+{
+    size_t i;
+    int trim = (p->block_min_indent < 0) ? 0 : p->block_min_indent;
+
+    while (p->block_lines_count > 0) {
+        char *line = p->block_lines[p->block_lines_count - 1];
+        char *s = line;
+
+        while (*s == ' ' || *s == '\t') {
+            s++;
+        }
+        if (*s == '\0') {
+            free(line);
+            p->block_lines_count--;
+            continue;
+        }
+        break;
+    }
+
+    for (i = 0; i < p->block_lines_count; i++) {
+        char *line = p->block_lines[i];
+        char *s = line;
+        int to_trim = trim;
+
+        while (to_trim > 0 && *s == ' ') {
+            s++;
+            to_trim--;
+        }
+        siml_emit_literal_line(p, s);
+    }
+
+    siml_block_buffer_reset(p);
+    return 0;
+}
+
 static int
 siml_is_field_line(struct siml_parser *p,
                    const char *line,
@@ -385,6 +477,7 @@ siml_parse_field(struct siml_parser *p,
             return 1;
         }
         strcpy(p->literal_key, key);
+        siml_block_buffer_reset(p);
         siml_debugf(p->debug_enabled,
                     "[dbg] %s:%ld: key '%s' starts literal block\n",
                     filename, line_no, key);
@@ -509,13 +602,16 @@ siml_parse_file(FILE *fp,
 
     parser.state = ST_OUTSIDE;
     parser.item_index = -1;
-    parser.block_pending_blank = 0;
     parser.block_list_key[0] = '\0';
     parser.block_list_has_items = 0;
     parser.block_list_pending_scalar = 0;
     parser.singleton_mode = 0;
     parser.mode_determined = 0;
     parser.literal_key[0] = '\0';
+    parser.block_lines = NULL;
+    parser.block_lines_count = 0;
+    parser.block_lines_cap = 0;
+    parser.block_min_indent = -1;
     parser.debug_enabled = debug_enabled;
     parser.cb = cb;
     parser.user_data = user_data;
@@ -537,9 +633,11 @@ siml_parse_file(FILE *fp,
                     return 1;
                 }
                 /* end block, handle this line as new item */
+                if (siml_block_buffer_emit(&parser) != 0) {
+                    return 1;
+                }
                 siml_emit_end_literal(&parser, parser.literal_key);
                 parser.state = ST_ITEM;
-                parser.block_pending_blank = 0;
                 /* fall through: process as normal below */
             } else {
                 int indent = 0;
@@ -553,42 +651,45 @@ siml_parse_file(FILE *fp,
                 }
                 if (indent == 0 && *bp == '#') {
                     /* comment at column 0 ends the literal block */
+                    if (siml_block_buffer_emit(&parser) != 0) {
+                        return 1;
+                    }
                     siml_emit_end_literal(&parser,
                                           parser.literal_key);
                     parser.state = ST_OUTSIDE;
-                    parser.block_pending_blank = 0;
                     continue;
                 }
                 if (siml_is_field_line(&parser, line, indent, &body_offset)) {
                     int rc;
 
+                    if (siml_block_buffer_emit(&parser) != 0) {
+                        return 1;
+                    }
                     siml_emit_end_literal(&parser, parser.literal_key);
                     parser.state = ST_ITEM;
-                    parser.block_pending_blank = 0;
                     rc = siml_parse_field(&parser,
                                           line + body_offset,
                                           filename, line_no);
                     if (rc != 0) {
                         return rc;
                     }
-                    if (parser.state == ST_BLOCK_LITERAL) {
-                        parser.block_pending_blank = 0;
-                    }
                     continue;
                 }
                 s = line;
-                if (s[0] == ' ') {
+                while (*s == ' ') {
                     s++;
                 }
                 if (siml_is_blank(s)) {
-                    parser.block_pending_blank = 1;
+                    if (siml_block_buffer_append(&parser, "", -1) != 0) {
+                        return 1;
+                    }
                     continue;
                 }
-                if (parser.block_pending_blank) {
-                    siml_emit_literal_line(&parser, "");
-                    parser.block_pending_blank = 0;
+                if (siml_block_buffer_append(&parser,
+                                             line,
+                                             indent) != 0) {
+                    return 1;
                 }
-                siml_emit_literal_line(&parser, s);
                 continue;
             }
         }
@@ -674,9 +775,6 @@ siml_parse_file(FILE *fp,
                         if (rc != 0) {
                             return rc;
                         }
-                        if (parser.state == ST_BLOCK_LITERAL) {
-                            parser.block_pending_blank = 0;
-                        }
                         continue;
                     }
                     siml_emit_list_empty(&parser,
@@ -688,9 +786,6 @@ siml_parse_file(FILE *fp,
                                       filename, line_no);
                 if (rc != 0) {
                     return rc;
-                }
-                if (parser.state == ST_BLOCK_LITERAL) {
-                    parser.block_pending_blank = 0;
                 }
                 continue;
             } else {
@@ -731,9 +826,6 @@ siml_parse_file(FILE *fp,
             if (rc != 0) {
                 return rc;
             }
-            if (parser.state == ST_BLOCK_LITERAL) {
-                parser.block_pending_blank = 0;
-            }
             continue;
         }
 
@@ -751,9 +843,6 @@ siml_parse_file(FILE *fp,
                                       filename, line_no);
                 if (rc != 0) {
                     return rc;
-                }
-                if (parser.state == ST_BLOCK_LITERAL) {
-                    parser.block_pending_blank = 0;
                 }
                 continue;
             }
@@ -798,14 +887,14 @@ siml_parse_file(FILE *fp,
             if (rc != 0) {
                 return rc;
             }
-            if (parser.state == ST_BLOCK_LITERAL) {
-                parser.block_pending_blank = 0;
-            }
             continue;
         }
     }
 
     if (parser.state == ST_BLOCK_LITERAL) {
+        if (siml_block_buffer_emit(&parser) != 0) {
+            return 1;
+        }
         siml_emit_end_literal(&parser, parser.literal_key);
     }
     if (parser.state == ST_BLOCK_LIST &&
@@ -819,6 +908,8 @@ siml_parse_file(FILE *fp,
                                  parser.block_list_key);
         }
     }
+
+    siml_block_buffer_reset(&parser);
 
     return 0;
 }

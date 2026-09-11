@@ -7,7 +7,7 @@ item 0
   list2[] = 'single'
   list3[] = ''
   description = '''
-   list demo
+list demo
 '''
   empty = ''
   list4[] = 'with_hash'
