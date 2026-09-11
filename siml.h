@@ -95,7 +95,7 @@ typedef enum siml_error_code {
     SIML_ERR_FLOW_MULTI_LINE,
     SIML_ERR_FLOW_UNTERMINATED,
     SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
-    SIML_ERR_FLOW_TRAILING_CHARS,
+    SIML_ERR_FLOW_EXCESS_TERM,
     SIML_ERR_FLOW_WHITESPACE,
     SIML_ERR_FLOW_EMPTY_ELEM,
     SIML_ERR_FLOW_TRAILING_COMMA,
@@ -208,6 +208,10 @@ typedef struct siml_parser_s {
     long              line_no;
     int               have_line;   /* boolean */
     int               at_eof;      /* boolean */
+    int               have_peek;   /* boolean */
+    size_t            peek_len;
+    char              peek_buf[SIML_MAX_LINE_LEN + 1];
+    siml_error_code   line_cr_code;
 
     /* High-level document state */
     int               started;
@@ -440,6 +444,53 @@ static int siml_fetch_line(siml_parser *p) {
     size_t len;
     int rc;
 
+    if (p->have_peek) {
+        p->line = p->peek_buf;
+        p->line_len = p->peek_len;
+        p->have_peek = 0;
+        p->have_line = 1;
+        p->line_no += 1;
+        p->line_cr_code = SIML_ERR_NONE;
+        {
+            size_t i;
+            int found_cr = 0;
+            for (i = 0; i < p->line_len; ++i) {
+                if (p->line[i] == '\r') {
+                    found_cr = 1;
+                    if (i + 1 < p->line_len) {
+                        p->line_cr_code = SIML_ERR_CR;
+                        return 1;
+                    }
+                }
+            }
+            if (found_cr && p->line_len > 0 && p->line[p->line_len - 1] == '\r') {
+                const char *peek_line;
+                size_t peek_len;
+                int peek_rc;
+                peek_rc = p->read_line(p->userdata, &peek_line, &peek_len);
+                if (peek_rc > 0) {
+                    if (peek_len > SIML_MAX_LINE_LEN) {
+                        siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
+                                       "physical line too long (max 4608 bytes)");
+                        return -1;
+                    }
+                    memcpy(p->peek_buf, peek_line, peek_len);
+                    p->peek_buf[peek_len] = '\0';
+                    p->peek_len = peek_len;
+                    p->have_peek = 1;
+                    p->line_cr_code = SIML_ERR_CRLF;
+                } else if (peek_rc == 0) {
+                    p->at_eof = 1;
+                    p->line_cr_code = SIML_ERR_CR;
+                } else {
+                    siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
+                                   "physical line too long (max 4608 bytes)");
+                    return -1;
+                }
+            }
+        }
+        return 1;
+    }
     if (p->at_eof) {
         p->have_line = 0;
         return 0;
@@ -450,6 +501,45 @@ static int siml_fetch_line(siml_parser *p) {
         p->line_len  = len;
         p->have_line = 1;
         p->line_no  += 1;
+        p->line_cr_code = SIML_ERR_NONE;
+        {
+            size_t i;
+            int found_cr = 0;
+            for (i = 0; i < len; ++i) {
+                if (line[i] == '\r') {
+                    found_cr = 1;
+                    if (i + 1 < len) {
+                        p->line_cr_code = SIML_ERR_CR;
+                        return 1;
+                    }
+                }
+            }
+            if (found_cr && len > 0 && line[len - 1] == '\r') {
+                const char *peek_line;
+                size_t peek_len;
+                int peek_rc;
+                peek_rc = p->read_line(p->userdata, &peek_line, &peek_len);
+                if (peek_rc > 0) {
+                    if (peek_len > SIML_MAX_LINE_LEN) {
+                        siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
+                                       "physical line too long (max 4608 bytes)");
+                        return -1;
+                    }
+                    memcpy(p->peek_buf, peek_line, peek_len);
+                    p->peek_buf[peek_len] = '\0';
+                    p->peek_len = peek_len;
+                    p->have_peek = 1;
+                    p->line_cr_code = SIML_ERR_CRLF;
+                } else if (peek_rc == 0) {
+                    p->at_eof = 1;
+                    p->line_cr_code = SIML_ERR_CR;
+                } else {
+                    siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
+                                   "physical line too long (max 4608 bytes)");
+                    return -1;
+                }
+            }
+        }
         return 1;
     }
     if (rc == 0) {
@@ -458,7 +548,8 @@ static int siml_fetch_line(siml_parser *p) {
         return 0;
     }
     p->have_line = 0;
-    siml_set_error(p, SIML_ERR_IO, "read_line IO error");
+    siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
+                   "physical line too long (max 4608 bytes)");
     return -1;
 }
 
@@ -480,15 +571,13 @@ static int siml_check_line_common(siml_parser *p) {
             return 0;
         }
     }
-    for (i = 0; i < len; ++i) {
-        if (s[i] == '\r') {
-            if (i + 1 == len) {
-                siml_set_error(p, SIML_ERR_CRLF, "CRLF is forbidden (\\r\\n found)");
-            } else {
-                siml_set_error(p, SIML_ERR_CR, "CR is forbidden (\\r found)");
-            }
-            return 0;
-        }
+    if (p->line_cr_code == SIML_ERR_CRLF) {
+        siml_set_error(p, SIML_ERR_CRLF, "CRLF is forbidden (\\r\\n found)");
+        return 0;
+    }
+    if (p->line_cr_code == SIML_ERR_CR) {
+        siml_set_error(p, SIML_ERR_CR, "CR is forbidden (\\r found)");
+        return 0;
     }
     return 1;
 }
@@ -573,12 +662,28 @@ static int siml_parse_inline_comment(siml_parser *p,
                                      size_t *out_comment_len) {
     size_t i;
     size_t hash_pos = (size_t)(-1);
+    size_t comment_start = start;
 
     *out_spaces = 0;
     *out_comment = 0;
     *out_comment_len = 0;
 
-    for (i = start; i < len; ++i) {
+    if (start < len && s[start] == '[') {
+        int depth = 0;
+        for (i = start; i < len; ++i) {
+            if (s[i] == '[') {
+                depth += 1;
+            } else if (s[i] == ']') {
+                depth -= 1;
+                if (depth == 0) {
+                    comment_start = i + 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    for (i = comment_start; i < len; ++i) {
         if (s[i] == '#') {
             if (i > 0 && s[i - 1] == ' ') {
                 hash_pos = i;
@@ -746,6 +851,10 @@ void siml_parser_reset(siml_parser *p) {
     p->line_no   = 0;
     p->have_line = 0;
     p->at_eof    = 0;
+    p->have_peek = 0;
+    p->peek_len = 0;
+    p->peek_buf[0] = '\0';
+    p->line_cr_code = SIML_ERR_NONE;
     p->started   = 0;
     p->in_document = 0;
     p->seen_document = 0;
@@ -965,8 +1074,8 @@ static int siml_prepare_flow_sequence(siml_parser *p,
     int saw_close = 0;
 
     if (value_len < 2) {
-        siml_set_error(p, SIML_ERR_FLOW_MULTI_LINE,
-                       "multi-line flow sequences are forbidden");
+        siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
+                       "unterminated flow sequence on the same line");
         return 0;
     }
     end_index = value_start + value_len - 1;
@@ -980,8 +1089,8 @@ static int siml_prepare_flow_sequence(siml_parser *p,
         }
         if (c == '[') {
             if (depth == 0 && i != value_start) {
-                siml_set_error(p, SIML_ERR_FLOW_TRAILING_CHARS,
-                               "trailing characters after flow sequence are forbidden");
+                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                               "excess flow sequence termination");
                 return 0;
             }
             depth += 1;
@@ -989,19 +1098,24 @@ static int siml_prepare_flow_sequence(siml_parser *p,
             saw_close = 1;
             depth -= 1;
             if (depth < 0) {
-                siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED,
-                               "unterminated flow sequence");
+                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                               "excess flow sequence termination");
                 return 0;
             }
             if (depth == 0 && i != end_index) {
-                siml_set_error(p, SIML_ERR_FLOW_TRAILING_CHARS,
-                               "trailing characters after flow sequence are forbidden");
+                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                               "excess flow sequence termination");
                 return 0;
             }
         }
     }
 
-    if (!saw_close || depth != 0) {
+    if (!saw_close) {
+        siml_set_error(p, SIML_ERR_FLOW_MULTI_LINE,
+                       "multi-line flow sequences are forbidden");
+        return 0;
+    }
+    if (depth != 0) {
         siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
                        "unterminated flow sequence on the same line");
         return 0;
@@ -1024,8 +1138,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
         size_t pos;
 
         if (depth < 0) {
-            siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED,
-                           "unterminated flow sequence");
+            siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                           "excess flow sequence termination");
             return SIML_EVENT_ERROR;
         }
 
@@ -1089,8 +1203,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             p->flow_stack_pos[depth] = match + 1;
             if (p->flow_stack_pos[depth] < end) {
                 if (s[p->flow_stack_pos[depth]] != ',') {
-                    siml_set_error(p, SIML_ERR_FLOW_TRAILING_CHARS,
-                                   "trailing characters after flow sequence are forbidden");
+                    siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                                   "excess flow sequence termination");
                     return SIML_EVENT_ERROR;
                 }
                 p->flow_stack_pos[depth] += 1;
@@ -1129,8 +1243,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
                 return SIML_EVENT_ERROR;
             }
             if (i < end && (s[i] == '[' || s[i] == ']')) {
-                siml_set_error(p, SIML_ERR_FLOW_TRAILING_CHARS,
-                               "trailing characters after flow sequence are forbidden");
+                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                               "excess flow sequence termination");
                 return SIML_EVENT_ERROR;
             }
             item_len = i - pos;
@@ -1152,8 +1266,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             p->flow_stack_pos[depth] = pos + item_len;
             if (p->flow_stack_pos[depth] < end) {
                 if (s[p->flow_stack_pos[depth]] != ',') {
-                    siml_set_error(p, SIML_ERR_FLOW_TRAILING_CHARS,
-                                   "trailing characters after flow sequence are forbidden");
+                    siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
+                                   "excess flow sequence termination");
                     return SIML_EVENT_ERROR;
                 }
                 p->flow_stack_pos[depth] += 1;
@@ -1261,6 +1375,14 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
                 ev->key = siml_make_slice(p->block_key, p->block_key_len);
                 ev->line = p->block_start_line;
                 return ev->type;
+            }
+
+            for (i = 0; i < p->block_indent + 2; ++i) {
+                if (s[i] != ' ') {
+                    siml_set_error(p, SIML_ERR_BLOCK_WRONG_INDENT,
+                                   "block literal content line has wrong indentation");
+                    return SIML_EVENT_ERROR;
+                }
             }
 
             if (len - (p->block_indent + 2) > SIML_MAX_BLOCK_LINE_LEN) {

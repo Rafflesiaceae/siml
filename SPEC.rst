@@ -683,6 +683,8 @@ Inline values and flow sequences:
 * empty flow sequence element
 * trailing comma in flow sequence is forbidden
 * flow sequence atom too long (max 128 bytes)
+* excess non-comment characters after flow sequence termination
+* inline comments not allowed inside flow sequence
 
 Literal block scalars:
 
