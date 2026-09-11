@@ -5,6 +5,8 @@ list2: [single]
 list3: []  # empty list
 description: |
   list demo
+  	after tab
+    after spaces
 empty:
 list4: [with_hash, value#notcomment]
 ---
@@ -19,5 +21,4 @@ flags: # preferred flags
 labels: []
 notes: block list demo after empty labels
 
---- # trailing separator should be ignored
 # vim: set ft=yaml:

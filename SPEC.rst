@@ -14,43 +14,44 @@ Example
 
 .. code-block:: text
 
-   - id: r_fullscreen
-     default: 1
-     min: 0.0
-     max: 1.0
-     flags: [CVAR_ARCHIVE, CVAR_TEMP]
-     description: |
-       Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-       Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-       Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+   id: r_fullscreen
+   default: 1
+   min: 0.0
+   max: 1.0
+   flags: [CVAR_ARCHIVE, CVAR_TEMP]
+   description: |
+     Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+     Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+     Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+   ---
+   id: cl_sensitivity
+   default: 3.0
+   min: 0.1
+   max: 10.0
+   flags: []
+   description: |
+     Lorem ipsum dolor sit amet, consectetur adipiscing elit.
 
-   - id: cl_sensitivity
-     default: 3.0
-     min: 0.1
-     max: 10.0
-     flags: []
-     description: |
-       Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-
-       Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-       Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
-
-   - id: r_audio
-     default: 1
-     min: 0.0
-     max: 1.0
-     flags:
+     Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+     Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
+   ---
+   id: r_audio
+   default: 1
+   min: 0.0
+   max: 1.0
+   flags:
      - CVAR_ARCHIVE
      - CVAR_TEMP
-     description: |
-       Example using block list syntax for ``flags``.
+   description: |
+     Example using block list syntax for ``flags``.
 
 1. Data model
 -------------
 
-A SIML document is:
+A SIML file is a sequence of one or more items (documents). Items are
+separated by ``---`` lines; the first separator is optional and a trailing
+separator is allowed.
 
-* Either a single *item* (a flat mapping) or a sequence of items.
 * Each item is a flat mapping from string keys to values.
 * Value types:
 
@@ -71,69 +72,15 @@ No nested mappings, no lists of lists, no lists of mappings.
 3. Top-level structure
 ----------------------
 
-A SIML document is either:
-
-* A sequence of items (list form), separated by blank and/or comment lines,
-  or
-* A single item (object form) with fields at column 0.
-
-3.1 List form (``- `` items)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Each item begins with a line of the form::
-
-   - key: value
-
-Rules:
-
-* The ``-`` must be the first character on the line.
-* It is followed by exactly one space.
-* Then a key, a colon ``:``, one space, then the value text.
-* The key on the first line is just another field (often ``id``, but the
-  format does not enforce this).
-
-Following lines belonging to the same item must start with exactly
-two spaces::
-
-   ␣␣key: value
-   ␣␣otherKey: value
-   ␣␣description: |
-   ␣␣  Literal block content...
-
-(Here ``␣`` denotes a space.)
-
-Rules:
-
-* Two spaces, then ``key``, then ``:``, then one space, then the value.
-* Lines starting with two spaces followed by ``-`` introduce elements of a
-  block list value (see section 5.2).
-* The item ends when one of these happens:
-
-  - A new item starts (``-`` at column 0),
-  - End of file.
-
-Blank lines and comment lines inside an item are allowed (see comments).
-
-3.2 Single-object form
-~~~~~~~~~~~~~~~~~~~~~~
-
-Instead of a list, a SIML file may contain a single item with fields that
-start at column 0::
-
-   key: value
-   otherKey: value
-   description: |
-     Literal block content...
-
-Rules:
-
-* The first non-comment/non-blank line must be ``key: value`` with no
-  leading ``-``.
-* All fields for the single object start at column 0 (no two-space indent).
-* Block lists under a key still use an indented ``-`` (e.g. ``␣␣- item``),
-  so they do not conflict with the top-level structure.
-* A ``- `` at column 0 after single-object parsing has started is an error
-  (mixing list and single-object forms is not allowed).
+* Items are separated by lines that are exactly ``---`` (optionally followed
+  by spaces and/or an inline comment).
+* The first item may omit the leading ``---``; a trailing ``---`` after the
+  last item is allowed and ignored.
+* Blank lines and full-line comments may appear before separators.
+* Each item is written as a mapping whose fields start at column 0 (a
+  two-space indent is also accepted). There is no top-level list syntax like
+  ``- key: value``; the ``-`` prefix is only used for block lists inside an
+  item.
 
 4. Keys
 -------
@@ -209,21 +156,17 @@ Inline form rules:
 
 Block form rules:
 
-* The key line is ``key:`` (or ``- key:`` as the first field of an item)
-  where the value part is empty after the colon (ignoring trailing spaces
-  and inline comment).
+* The key line is ``key:`` where the value part is empty after the colon
+  (ignoring trailing spaces and inline comment).
 * The list consists of subsequent lines that:
 
-  - Belong to the same item (start with the standard item indentation of
-    two spaces inside an item), and
-  - After those two spaces, add at least one more space before ``-`` and a
-    trailing space. A common and recommended layout is four spaces then
-    ``-`` (``␣␣␣␣- item``), matching normal YAML list indentation.
+  - Belong to the same item (start with at least two spaces before ``-``), and
+  - After that indent, add a space before ``-`` and a trailing space. A common
+    and recommended layout is two spaces then ``-`` (``␣␣- item``).
 
   Example (logical layout, without the code-block padding)::
 
-     - id: example
-       flags:
+     flags:
        - CVAR_ARCHIVE
        - CVAR_TEMP
 
@@ -232,8 +175,8 @@ Block form rules:
   and becomes one element of the list.
 * The block list ends when one of these happens:
 
-  - A new item starts (``-`` at column 0),
-  - A new field line starts (two spaces, then a key and ``:``),
+  - A new document separator line ``---`` appears,
+  - A new field line starts (column 0 or two spaces, then a key and ``:``),
   - End of file.
 
 * Blank lines and full-line comments between list items are allowed and
@@ -260,28 +203,15 @@ A field can introduce a multi-line literal::
 
 Rules:
 
-1. The field line is:
-
-   *Either*::
-
-      - key: |
-
-   *or*::
-
-      ␣␣key: |
-
-   i.e. the value part is exactly a single ``|`` (ignoring trailing spaces
-   and inline comment).
+1. The field line is ``key: |`` (optionally with a two-space indent). The
+   value part is exactly a single ``|`` (ignoring trailing spaces and inline
+   comment).
 
 2. The block content consists of all subsequent lines until:
 
-   * A line that starts a new item (``-`` at column 0 as first non-space), or
-   * A line that starts a new field for the current item:
-
-     - Column 0 in the single-object form, or
-     - Exactly two spaces then ``key:`` inside a list item,
-
-     with the same key/colon rules as any other field line.
+   * A line that starts a new field for the current item (column 0 or with a
+     two-space indent) with the same key/colon rules as any other field line.
+   * A document separator line ``---`` at column 0,
    * A comment line that starts at column 0 (``#`` with no leading spaces), or
    * End of file.
 
@@ -336,52 +266,47 @@ This is an informal EBNF-style description of SIML:
 
 .. code-block:: text
 
-   document       ::= single_object | item_sequence
+   document_stream  ::= [ document_separator ]
+                        item
+                        { document_separator item }
+                        [ document_separator ]
 
-   item_sequence  ::= { blank_or_comment | item }
+   document_separator ::= "---" SPACES? [ "#" TEXT ]?
 
-   single_object  ::= field_body_line { blank_or_comment | object_field }
-   object_field   ::= field_body_line
-                    | "  - " block_list_element   ; block list item
+   item             ::= field_body_line { blank_or_comment | item_field }
+   item_field       ::= field_body_line
+                      | "  - " block_list_element   ; block list item
 
-   item           ::= item_first_field { blank_or_comment | item_field }
-   item_first_field
-                   ::= "- " field_body
-   item_field     ::= "  " field_body
-                    | "  - " block_list_element   ; block list item
+   field_body_line  ::= field_body
+                      | "  " field_body
 
-   field_body_line
-                   ::= field_body
+   field_body       ::= key ":" " " field_value
 
-   field_body     ::= key ":" " " field_value
+   field_value      ::= list_value
+                      | block_marker
+                      | scalar_value
 
-   field_value    ::= list_value
-                    | block_marker
-                    | scalar_value
+   block_marker     ::= "|"
 
-   block_marker   ::= "|"
+   list_value       ::= "[" [ list_item { "," list_item } ] "]"
+                      | block_list
 
-   list_value     ::= "[" [ list_item { "," list_item } ] "]"
-                    | block_list
+   block_list       ::= { block_list_line }
 
-   block_list     ::= { block_list_line }
-
-   block_list_line
-                   ::= "  - " block_list_element
+   block_list_line  ::= "  - " block_list_element
 
    block_list_element
-                   ::= bare_word   ; up to inline comment/#
+                      ::= bare_word   ; up to inline comment/#
 
-   list_item      ::= SPACES? bare_word SPACES?
+   list_item        ::= SPACES? bare_word SPACES?
 
-   scalar_value   ::= NONEMPTY_TEXT   ; up to end-of-line, before inline comment/#
+   scalar_value     ::= NONEMPTY_TEXT   ; up to end-of-line, before inline comment/#
 
-   key            ::= ALPHA [ ALNUM | "_" ]*
+   key              ::= ALPHA [ ALNUM | "_" ]*
 
-   bare_word      ::= 1*(non-space, non-comma, non-"]", non-# chars)
+   bare_word        ::= 1*(non-space, non-comma, non-"]", non-# chars)
 
-   blank_or_comment
-                   ::= BLANK_LINE | COMMENT_LINE
+   blank_or_comment ::= BLANK_LINE | COMMENT_LINE
 
 Block content after ``block_marker`` is defined by the rules in section 5.3.
 Block list details are defined in section 5.2.
@@ -409,13 +334,13 @@ Major restrictions:
 * No advanced YAML features:
 
   - No anchors (``&``), aliases (``*``), tags (``!tag``),
-    directives (``%YAML``), or document separators (``---``, ``...``).
+    directives (``%YAML``), or ``...`` document terminators.
   - No folded blocks (``>``).
 
 * Simplified syntax:
 
-  - Fixed indentation: ``- `` at column 0 for new items,
-    and two spaces for subsequent fields and block list lines.
+  - Items are separated by ``---``; fields are at column 0 (or two spaces),
+    and block list lines use an extra indent before ``-``.
   - Keys are unquoted identifiers.
   - Lists are either inline ``[a, b, c]`` or simple block lists using
     ``- item``, and elements are always bare words.

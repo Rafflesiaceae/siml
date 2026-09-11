@@ -63,8 +63,6 @@ struct siml_parser {
     char block_list_key[SIML_MAX_KEY];
     int block_list_has_items;
     int block_list_pending_scalar;
-    int singleton_mode;
-    int mode_determined;
     char literal_key[SIML_MAX_KEY];
     char **block_lines;
     size_t block_lines_count;
@@ -139,6 +137,25 @@ siml_is_comment(const char *s)
         p++;
     }
     return *p == '#';
+}
+
+static int
+siml_is_doc_separator(const char *line)
+{
+    const char *p;
+
+    if (!(line[0] == '-' && line[1] == '-' && line[2] == '-')) {
+        return 0;
+    }
+
+    p = line + 3;
+    if (*p == '\0') {
+        return 1;
+    }
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+    return (*p == '\0' || *p == '#');
 }
 
 static int
@@ -346,14 +363,10 @@ siml_is_field_line(struct siml_parser *p,
     const char *colon;
     const char *key_end;
 
-    if (p->singleton_mode) {
-        if (!(indent == 0 || indent == 2)) {
-            return 0;
-        }
-    } else {
-        if (indent != 2) {
-            return 0;
-        }
+    (void) p;
+
+    if (!(indent == 0 || indent == 2)) {
+        return 0;
     }
 
     body = line + indent;
@@ -605,8 +618,6 @@ siml_parse_file(FILE *fp,
     parser.block_list_key[0] = '\0';
     parser.block_list_has_items = 0;
     parser.block_list_pending_scalar = 0;
-    parser.singleton_mode = 0;
-    parser.mode_determined = 0;
     parser.literal_key[0] = '\0';
     parser.block_lines = NULL;
     parser.block_lines_count = 0;
@@ -624,93 +635,74 @@ siml_parse_file(FILE *fp,
                     filename, line_no, line);
 
         if (parser.state == ST_BLOCK_LITERAL) {
-            if (line[0] == '-' && line[1] == ' ') {
-                if (parser.singleton_mode) {
-                    fprintf(stderr,
-                            "%s:%ld: unexpected item start in "
-                            "single-object document\n",
-                            filename, line_no);
+            int indent = 0;
+            char *bp = line;
+            int body_offset = 0;
+            char *s;
+
+            if (siml_is_doc_separator(line)) {
+                if (siml_block_buffer_emit(&parser) != 0) {
                     return 1;
                 }
-                /* end block, handle this line as new item */
+                siml_emit_end_literal(&parser, parser.literal_key);
+                parser.state = ST_OUTSIDE;
+                continue;
+            }
+
+            while (*bp == ' ') {
+                indent++;
+                bp++;
+            }
+            if (indent == 0 && *bp == '#') {
+                /* comment at column 0 ends the literal block */
+                if (siml_block_buffer_emit(&parser) != 0) {
+                    return 1;
+                }
+                siml_emit_end_literal(&parser,
+                                      parser.literal_key);
+                parser.state = ST_ITEM;
+                continue;
+            }
+            if (siml_is_field_line(&parser, line, indent, &body_offset)) {
+                int rc;
+
                 if (siml_block_buffer_emit(&parser) != 0) {
                     return 1;
                 }
                 siml_emit_end_literal(&parser, parser.literal_key);
                 parser.state = ST_ITEM;
-                /* fall through: process as normal below */
-            } else {
-                int indent = 0;
-                char *bp = line;
-                int body_offset = 0;
-                char *s;
-
-                while (*bp == ' ') {
-                    indent++;
-                    bp++;
+                rc = siml_parse_field(&parser,
+                                      line + body_offset,
+                                      filename, line_no);
+                if (rc != 0) {
+                    return rc;
                 }
-                if (indent == 0 && *bp == '#') {
-                    /* comment at column 0 ends the literal block */
-                    if (siml_block_buffer_emit(&parser) != 0) {
-                        return 1;
-                    }
-                    siml_emit_end_literal(&parser,
-                                          parser.literal_key);
-                    parser.state = ST_OUTSIDE;
-                    continue;
-                }
-                if (siml_is_field_line(&parser, line, indent, &body_offset)) {
-                    int rc;
-
-                    if (siml_block_buffer_emit(&parser) != 0) {
-                        return 1;
-                    }
-                    siml_emit_end_literal(&parser, parser.literal_key);
-                    parser.state = ST_ITEM;
-                    rc = siml_parse_field(&parser,
-                                          line + body_offset,
-                                          filename, line_no);
-                    if (rc != 0) {
-                        return rc;
-                    }
-                    continue;
-                }
-                s = line;
-                while (*s == ' ') {
-                    s++;
-                }
-                if (siml_is_blank(s)) {
-                    if (siml_block_buffer_append(&parser, "", -1) != 0) {
-                        return 1;
-                    }
-                    continue;
-                }
-                if (siml_block_buffer_append(&parser,
-                                             line,
-                                             indent) != 0) {
+                continue;
+            }
+            s = line;
+            while (*s == ' ') {
+                s++;
+            }
+            if (siml_is_blank(s)) {
+                if (siml_block_buffer_append(&parser, "", -1) != 0) {
                     return 1;
                 }
                 continue;
             }
+            if (siml_block_buffer_append(&parser,
+                                         line,
+                                         indent) != 0) {
+                return 1;
+            }
+            continue;
         }
 
         if (parser.state == ST_BLOCK_LIST) {
             char *bp = siml_lskip_spaces(line);
             int indent = (int) (bp - line);
+            int body_offset = 0;
 
-            if (siml_is_blank(bp) || siml_is_comment(bp)) {
-                continue;
-            }
-
-            if (line[0] == '-' && line[1] == ' ') {
-                if (parser.singleton_mode) {
-                    fprintf(stderr,
-                            "%s:%ld: unexpected item start in "
-                            "single-object document\n",
-                            filename, line_no);
-                    return 1;
-                }
-                /* new item starts, close empty list if needed */
+            if (siml_is_doc_separator(line)) {
                 if (!parser.block_list_has_items) {
                     if (parser.block_list_pending_scalar) {
                         siml_emit_scalar(&parser,
@@ -722,9 +714,16 @@ siml_parse_file(FILE *fp,
                     }
                 }
                 parser.block_list_pending_scalar = 0;
+                parser.block_list_has_items = 0;
                 parser.state = ST_OUTSIDE;
-                /* fall through to normal item handling below */
-            } else if (indent >= 2 &&
+                continue;
+            }
+
+            if (siml_is_blank(bp) || siml_is_comment(bp)) {
+                continue;
+            }
+
+            if (indent >= 2 &&
                        bp[0] == '-' && bp[1] == ' ') {
                 /* block list element */
                 char *elem = bp + 2;
@@ -759,9 +758,9 @@ siml_parse_file(FILE *fp,
                 parser.block_list_has_items = 1;
                 parser.block_list_pending_scalar = 0;
                 continue;
-            } else if (indent == 2) {
+            } else if (siml_is_field_line(&parser, line, indent, &body_offset)) {
                 int rc;
-                char *body = line + 2;
+                char *body = line + body_offset;
 
                 if (!parser.block_list_has_items) {
                     if (parser.block_list_pending_scalar) {
@@ -781,6 +780,7 @@ siml_parse_file(FILE *fp,
                                          parser.block_list_key);
                 }
                 parser.block_list_pending_scalar = 0;
+                parser.block_list_has_items = 0;
                 parser.state = ST_ITEM;
                 rc = siml_parse_field(&parser, body,
                                       filename, line_no);
@@ -790,8 +790,8 @@ siml_parse_file(FILE *fp,
                 continue;
             } else {
                 fprintf(stderr,
-                        "%s:%ld: expected block list item or new "
-                        "field/item\n",
+                        "%s:%ld: expected block list item, field, or "
+                        "document separator\n",
                         filename, line_no);
                 return 1;
             }
@@ -805,23 +805,28 @@ siml_parse_file(FILE *fp,
             continue;
         }
 
-        if (line[0] == '-' && line[1] == ' ') {
-            int rc;
-            char *body = line + 2;
+        if (siml_is_doc_separator(line)) {
+            parser.state = ST_OUTSIDE;
+            continue;
+        }
 
-            if (parser.singleton_mode) {
+        if (parser.state == ST_OUTSIDE) {
+            int rc;
+            int body_offset = 0;
+            int indent = (int) (p_line - line);
+
+            if (!siml_is_field_line(&parser, line, indent, &body_offset)) {
                 fprintf(stderr,
-                        "%s:%ld: unexpected item start in "
-                        "single-object document\n",
+                        "%s:%ld: expected field to start document "
+                        "(use '---' between documents)\n",
                         filename, line_no);
                 return 1;
             }
-            parser.mode_determined = 1;
+
             parser.item_index++;
             siml_emit_begin_item(&parser, parser.item_index);
             parser.state = ST_ITEM;
-
-            rc = siml_parse_field(&parser, body,
+            rc = siml_parse_field(&parser, line + body_offset,
                                   filename, line_no);
             if (rc != 0) {
                 return rc;
@@ -829,60 +834,21 @@ siml_parse_file(FILE *fp,
             continue;
         }
 
-        if (parser.state == ST_OUTSIDE) {
-            int rc;
-
-            if (!parser.mode_determined) {
-                /* single-object form */
-                parser.mode_determined = 1;
-                parser.singleton_mode = 1;
-                parser.item_index = 0;
-                siml_emit_begin_item(&parser, parser.item_index);
-                parser.state = ST_ITEM;
-                rc = siml_parse_field(&parser, line,
-                                      filename, line_no);
-                if (rc != 0) {
-                    return rc;
-                }
-                continue;
-            }
-
-            fprintf(stderr,
-                    "%s:%ld: expected item start ('- key: value')\n",
-                    filename, line_no);
-            return 1;
-        }
-
         /* ST_ITEM: expect fields */
         {
             int rc;
-            char *body = NULL;
+            int body_offset = 0;
+            int indent = (int) (p_line - line);
 
-            if (parser.singleton_mode) {
-                if (line[0] == ' ' && line[1] == ' ') {
-                    body = line + 2;
-                } else if (line[0] == ' ') {
-                    fprintf(stderr,
-                            "%s:%ld: expected field at column 0 or "
-                            "with two-space indent\n",
-                            filename, line_no);
-                    return 1;
-                } else {
-                    body = line;
-                }
-            } else {
-                if (line[0] == ' ' && line[1] == ' ') {
-                    body = line + 2;
-                } else {
-                    fprintf(stderr,
-                            "%s:%ld: expected 2-space-indented field "
-                            "or new item\n",
-                            filename, line_no);
-                    return 1;
-                }
+            if (!siml_is_field_line(&parser, line, indent, &body_offset)) {
+                fprintf(stderr,
+                        "%s:%ld: expected field at column 0 or "
+                        "with two-space indent\n",
+                        filename, line_no);
+                return 1;
             }
 
-            rc = siml_parse_field(&parser, body,
+            rc = siml_parse_field(&parser, line + body_offset,
                                   filename, line_no);
             if (rc != 0) {
                 return rc;
