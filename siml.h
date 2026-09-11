@@ -60,7 +60,6 @@ enum siml_state {
 struct siml_parser {
     enum siml_state state;
     int item_index;
-    int last_was_block;
     int block_pending_blank;
     char block_list_key[SIML_MAX_KEY];
     int block_list_has_items;
@@ -159,6 +158,27 @@ siml_is_valid_key(const char *key)
     return 1;
 }
 
+static int
+siml_is_valid_key_span(const char *start, size_t len)
+{
+    size_t i;
+
+    if (len == 0) {
+        return 0;
+    }
+    if (!isalpha((unsigned char) start[0]) && start[0] != '_') {
+        return 0;
+    }
+    for (i = 1; i < len; i++) {
+        unsigned char c = (unsigned char) start[i];
+
+        if (!isalnum(c) && c != '_') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void
 siml_emit_begin_item(struct siml_parser *p, int index)
 {
@@ -224,6 +244,59 @@ siml_emit_end_literal(struct siml_parser *p,
 }
 
 static int
+siml_is_field_line(struct siml_parser *p,
+                   const char *line,
+                   int indent,
+                   int *body_offset)
+{
+    const char *body;
+    const char *colon;
+    const char *key_end;
+
+    if (p->singleton_mode) {
+        if (!(indent == 0 || indent == 2)) {
+            return 0;
+        }
+    } else {
+        if (indent != 2) {
+            return 0;
+        }
+    }
+
+    body = line + indent;
+    if (siml_is_blank(body) || siml_is_comment(body)) {
+        return 0;
+    }
+
+    colon = strchr(body, ':');
+    if (!colon) {
+        return 0;
+    }
+
+    key_end = colon;
+    while (key_end > body && (key_end[-1] == ' ' || key_end[-1] == '\t')) {
+        key_end--;
+    }
+    if (key_end == body) {
+        return 0;
+    }
+
+    if (!siml_is_valid_key_span(body,
+                                (size_t) (key_end - body))) {
+        return 0;
+    }
+
+    if (colon[1] != '\0' && colon[1] != ' ') {
+        return 0;
+    }
+
+    if (body_offset) {
+        *body_offset = indent;
+    }
+    return 1;
+}
+
+static int
 siml_parse_field(struct siml_parser *p,
                  char *body,
                  const char *filename,
@@ -262,14 +335,6 @@ siml_parse_field(struct siml_parser *p,
         return 1;
     }
 
-    if (p->last_was_block) {
-        fprintf(stderr,
-                "%s:%ld: fields after literal block are not allowed "
-                "(key '%s')\n",
-                filename, line_no, key);
-        return 1;
-    }
-
     /* detect block list (empty value, ignoring inline comment) */
     {
         int value_is_empty = 1;
@@ -301,7 +366,6 @@ siml_parse_field(struct siml_parser *p,
             strcpy(p->block_list_key, key);
             p->block_list_has_items = 0;
             p->state = ST_BLOCK_LIST;
-            p->last_was_block = 0;
             siml_debugf(p->debug_enabled,
                         "[dbg] %s:%ld: key '%s' starts block list\n",
                         filename, line_no, key);
@@ -324,7 +388,6 @@ siml_parse_field(struct siml_parser *p,
                     filename, line_no, key);
         siml_emit_begin_literal(p, key);
         p->state = ST_BLOCK_LITERAL;
-        p->last_was_block = 1;
         return 0;
     }
 
@@ -374,7 +437,6 @@ siml_parse_field(struct siml_parser *p,
             siml_debugf(p->debug_enabled,
                         "[dbg] %s:%ld: key '%s' has empty list\n",
                         filename, line_no, key);
-            p->last_was_block = 0;
             return 0;
         }
 
@@ -406,7 +468,6 @@ siml_parse_field(struct siml_parser *p,
             }
         }
 
-        p->last_was_block = 0;
         return 0;
     } else {
         /* scalar, handle inline comment */
@@ -428,7 +489,6 @@ siml_parse_field(struct siml_parser *p,
         }
         siml_rstrip_spaces(value);
         siml_emit_scalar(p, key, value);
-        p->last_was_block = 0;
         return 0;
     }
 }
@@ -447,7 +507,6 @@ siml_parse_file(FILE *fp,
 
     parser.state = ST_OUTSIDE;
     parser.item_index = -1;
-    parser.last_was_block = 0;
     parser.block_pending_blank = 0;
     parser.block_list_key[0] = '\0';
     parser.block_list_has_items = 0;
@@ -477,12 +536,12 @@ siml_parse_file(FILE *fp,
                 /* end block, handle this line as new item */
                 siml_emit_end_literal(&parser, parser.literal_key);
                 parser.state = ST_ITEM;
-                parser.last_was_block = 0;
                 parser.block_pending_blank = 0;
                 /* fall through: process as normal below */
             } else {
                 int indent = 0;
                 char *bp = line;
+                int body_offset = 0;
                 char *s;
 
                 while (*bp == ' ') {
@@ -495,6 +554,23 @@ siml_parse_file(FILE *fp,
                                           parser.literal_key);
                     parser.state = ST_OUTSIDE;
                     parser.block_pending_blank = 0;
+                    continue;
+                }
+                if (siml_is_field_line(&parser, line, indent, &body_offset)) {
+                    int rc;
+
+                    siml_emit_end_literal(&parser, parser.literal_key);
+                    parser.state = ST_ITEM;
+                    parser.block_pending_blank = 0;
+                    rc = siml_parse_field(&parser,
+                                          line + body_offset,
+                                          filename, line_no);
+                    if (rc != 0) {
+                        return rc;
+                    }
+                    if (parser.state == ST_BLOCK_LITERAL) {
+                        parser.block_pending_blank = 0;
+                    }
                     continue;
                 }
                 s = line;
@@ -536,7 +612,6 @@ siml_parse_file(FILE *fp,
                                          parser.block_list_key);
                 }
                 parser.state = ST_OUTSIDE;
-                parser.last_was_block = 0;
                 /* fall through to normal item handling below */
             } else if (indent >= 2 &&
                        bp[0] == '-' && bp[1] == ' ') {
@@ -622,7 +697,6 @@ siml_parse_file(FILE *fp,
             parser.item_index++;
             siml_emit_begin_item(&parser, parser.item_index);
             parser.state = ST_ITEM;
-            parser.last_was_block = 0;
 
             rc = siml_parse_field(&parser, body,
                                   filename, line_no);
@@ -645,7 +719,6 @@ siml_parse_file(FILE *fp,
                 parser.item_index = 0;
                 siml_emit_begin_item(&parser, parser.item_index);
                 parser.state = ST_ITEM;
-                parser.last_was_block = 0;
                 rc = siml_parse_field(&parser, line,
                                       filename, line_no);
                 if (rc != 0) {

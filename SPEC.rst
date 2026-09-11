@@ -272,10 +272,18 @@ Rules:
 2. The block content consists of all subsequent lines until:
 
    * A line that starts a new item (``-`` at column 0 as first non-space), or
+   * A line that starts a new field for the current item:
+
+     - Column 0 in the single-object form, or
+     - Exactly two spaces then ``key:`` inside a list item,
+
+     with the same key/colon rules as any other field line.
    * A comment line that starts at column 0 (``#`` with no leading spaces), or
    * End of file.
 
-   By design, a literal block should be the last field of the item.
+   To keep text such as ``note: still part of the block`` inside the block,
+   indent it by at least one extra space so it no longer matches the field
+   indentation rules above.
 
 3. For each content line:
 
@@ -406,7 +414,7 @@ Major restrictions:
   - Keys are unquoted identifiers.
   - Lists are either inline ``[a, b, c]`` or simple block lists using
     ``- item``, and elements are always bare words.
-  - Literal blocks are always ``|`` and should be the last field of the item.
+  - Literal blocks are always ``|`` and can appear anywhere within an item.
 
 * Minimal comment behavior:
 

@@ -6,11 +6,12 @@ item 0
   list1[] = c
   list2[] = single
   list3[] = (empty)
-  list4[] = with_hash
-  list4[] = value#notcomment
   description = """
    list demo
   """
+  empty[] = (empty)
+  list4[] = with_hash
+  list4[] = value#notcomment
 
 item 1
   id = block_list_demo
