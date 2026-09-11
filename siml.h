@@ -310,9 +310,8 @@ void siml_parser_init(siml_parser *p,
 /* Reset parser to initial state but keep the same read callback and userdata. */
 void siml_parser_reset(siml_parser *p);
 
-/* Main pull API: obtain the next event from the stream.
- *
- * Errors are reported as SIML_EVENT_ERROR.
+/* Obtain the next event. Fills *ev and returns ev->type as a
+ * convenience for use in loop conditions. Errors yield SIML_EVENT_ERROR.
  */
 siml_event_type siml_next(siml_parser *p, siml_event *ev);
 
