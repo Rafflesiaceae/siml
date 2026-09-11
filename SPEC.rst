@@ -158,6 +158,9 @@ SIML forbids trailing spaces.
 * Every line MUST end immediately at the last non-space
   character (followed by the LF).
 
+This rule applies to **all** lines, including literal block scalar content
+lines (section 7.2).
+
 3.6 Maximum physical line length
 --------------------------------
 
@@ -189,6 +192,14 @@ Documents are separated by a line that is exactly:
 * MUST NOT have inline comments
 * MUST NOT appear trailing after the last document
 * MUST NOT appear leading before the first document
+
+Operational note:
+
+* A separator line ``---`` terminates the current document and indicates that
+  another document follows later in the stream. Therefore, a separator line is
+  only valid **between** two documents. Implementations MUST diagnose the
+  invalid cases separately (before the first document vs after the last
+  document) per section 10.
 
 4.2 Leading and inter-document trivia
 -------------------------------------
@@ -223,6 +234,12 @@ Let ``A`` be the set of indentation levels currently open on the indentation sta
 * If the parser is **expecting the first line of a nested node** after a
   header-only ``key:`` or ``-`` with header indentation ``H``, then a comment
   line **MUST** have indentation exactly ``H+2``.
+
+  Such comments are treated as **leading trivia for the nested node** at level
+  ``H+2``. They MUST be attached to that nested level for round-trip, but they
+  MUST NOT push a new indentation level onto the indentation stack and MUST NOT
+  satisfy the requirement that the header-only form be followed by a nested
+  structural line (see 6.2 and 6.3).
 
 * Otherwise, a comment line indentation **MUST** be one of the open levels:
   ``indent ∈ A``.
@@ -404,6 +421,11 @@ Rules:
 * The entire sequence MUST be on one line.
 * The first character MUST be ``[`` and the last character before any inline
   comment MUST be ``]``.
+* Immediately after the closing ``]`` there MUST be either:
+  - end of line, or
+  - an inline comment as defined in section 5.2 (i.e. one or more spaces, then
+    ``#``, then exactly one space, then non-empty text).
+  Any other trailing characters after ``]`` MUST cause a parsing error.
 * **No whitespace is allowed anywhere inside** the brackets.
 * Elements MUST be separated by commas.
 * Empty list MUST be exactly ``[]``.
@@ -515,6 +537,9 @@ Block scalar content rules:
 * Blank lines (empty lines) are allowed **only** when they occur **between
   non-blank content lines**. Leading or trailing blank lines are forbidden.
 * Lines containing only spaces or tabs are forbidden.
+* Trailing spaces are forbidden in block scalar content lines (section 3.5
+  applies). A block scalar content line MUST end at the last non-space byte
+  immediately before its terminating LF.
 * Contents MUST be non-empty, i.e. zero content lines MUST be a parsing error
 
 Additional size limits:
@@ -646,6 +671,8 @@ Inline values and flow sequences:
 * inline value too long (max 2048 bytes)
 * multi-line flow sequences are forbidden
 * unterminated flow sequence
+* unterminated flow sequence on the same line
+* trailing characters after flow sequence are forbidden
 * flow sequence contains whitespace (forbidden)
 * empty flow sequence element
 * trailing comma in flow sequence is forbidden
@@ -684,7 +711,7 @@ SIML forbids (MUST NOT support):
 
 .. code-block:: text
 
-   stream         ::= comment* document (separator comment* document)* comment* EOF
+   stream         ::= comment* document (comment* separator comment* document)* comment* EOF
 
    ; Per section 4.1, '---' MUST NOT have inline comments.
    separator      ::= '---' EOL
