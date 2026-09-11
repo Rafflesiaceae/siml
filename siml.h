@@ -204,7 +204,7 @@ siml_is_valid_key(const char *key)
     }
     p++;
     while (*p) {
-        if (!isalnum(*p) && *p != '_') {
+        if (!isalnum(*p) && *p != '_' && *p != '-' && *p != '.') {
             return 0;
         }
         p++;
@@ -226,7 +226,7 @@ siml_is_valid_key_span(const char *start, size_t len)
     for (i = 1; i < len; i++) {
         unsigned char c = (unsigned char) start[i];
 
-        if (!isalnum(c) && c != '_') {
+        if (!isalnum(c) && c != '_' && c != '-' && c != '.') {
             return 0;
         }
     }

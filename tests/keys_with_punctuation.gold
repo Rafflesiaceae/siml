@@ -1,0 +1,10 @@
+item 0
+  simple-key = 'alpha'
+  with.dots = 'bravo'
+  hyphenated-key = 'charlie'
+  mix.ed-key_1 = 'delta'
+  list-key.with-dash[] = 'one-two'
+  list-key.with-dash[] = 'three.four'
+  literal.key = '''
+echoes of a dashed-key literal
+'''

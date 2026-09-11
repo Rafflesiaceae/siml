@@ -84,7 +84,7 @@ No nested mappings, no lists of lists, no lists of mappings.
 
 * Keys are simple identifiers::
 
-    [a-zA-Z_][a-zA-Z0-9_]*
+    [a-zA-Z_][a-zA-Z0-9_.-]*
 
 * Keys are unquoted.
 * Keys are unique within a single item (duplicate keys may be treated
@@ -101,11 +101,6 @@ float, enum, etc. is up to the consumer. Lists are sequences of such strings.
 
 Simple scalar text
 ~~~~~~~~~~~~~~~~~~
-
-SIML uses the same notion of *simple scalar* for:
-
-* scalar field values (section 5.1), and
-* individual list elements (section 5.2).
 
 A simple scalar is:
 
@@ -170,17 +165,12 @@ Rules:
 * Inside, there are zero or more **list elements**, separated by commas.
   A trailing comma before ``"]"`` is allowed.
 
-* Each list element is a simple scalar (same character set as scalar values
-  in section 5.1):
+* Each list element is a simple scalar:
 
   - Leading and trailing spaces around the element are ignored.
   - The element text runs up to the next comma or closing ``"]"``.
   - The resulting text must not contain ``","`` or ``"]"`` and must not
     be empty.
-
-* In multi-line lists, blank lines and full-line comments (lines whose first
-  non-space character is ``#``) may appear between elements and are ignored
-  (see section 6).
 
 5.3 Literal block values (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -287,7 +277,7 @@ This is an informal EBNF-style description of SIML:
 
    scalar_value     ::= simple_scalar   ; after stripping trailing spaces/comment
 
-   key              ::= ALPHA [ ALNUM | "_" ]*
+   key              ::= ALPHA [ ALNUM | "_" | "-" | "." ]*
 
    simple_scalar    ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET)
 
@@ -339,12 +329,9 @@ Implementation intent
 ---------------------
 
 These restrictions are intentional so a SIML parser can be written in
-portable ANSI C as:
+portable ANSI C easily as:
 
 * A single line-by-line state machine,
 * Using only ``fgets``, ``strchr``, ``strncmp``, and minimal string
   trimming/splitting,
 * Without requiring a general tokenizer or parser generator.
-
-This makes SIML suitable as a configuration source in small C codebases
-that want YAML-like readability with trivial parsing complexity.
