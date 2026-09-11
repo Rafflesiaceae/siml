@@ -61,16 +61,6 @@ Documents MUST be non-empty:
 * A document mapping MUST have at least one entry.
 * A document sequence MUST have at least one item.
 
-Sequence presentation forms:
-
-* **Block sequence**: classic YAML dash form
-* **Flow sequence**: single-line bracket form ``[a,b,c]`` only - no multi line.
-
-Mappings have only one form: **block mapping**.
-
-There are no flow mappings (``{...}``) and no quoted scalars in SIML.
-
-
 2. Concrete syntax and round-tripping
 =====================================
 
@@ -126,8 +116,7 @@ For perfect round-trip:
 ---------------
 
 * Indentation MUST be spaces only (``0x20``), never tabs.
-* Indentation MUST be exactly two spaces per nesting level.
-* Indentation levels are therefore 0, 2, 4, 6, …
+* Indentation MUST be exactly two spaces per nesting level (0, 2, 4, 6, …).
 
 SIML uses indentation only for **block mappings**, **block sequences**, and
 **literal block scalar content**.
@@ -168,23 +157,11 @@ Documents are separated by a line that is exactly:
 
 * ``---``
 
-Optionally, a separator line MAY include a trailing inline comment in the form::
-
-  ---<N spaces>#<one space>comment text
-
-Examples::
-
-  --- # doc comment
-  ---      # aligned doc comment
-
-where ``N >= 1``. The exact number of spaces ``N`` preceding ``#`` MUST be
-preserved for perfect round-trip.
-
-Separators:
-
 * MUST appear at indentation level 0
+* MUST NOT have inline comments
+* MUST NOT appear trailing after the last document
+* MUST NOT appear leading before the first document
 * MUST NOT appear inside literal block scalar content
-* A trailing ``---`` after the last document MUST NOT appear.
 
 4.2 Leading and inter-document trivia
 -------------------------------------
@@ -312,6 +289,10 @@ parsing error.
 
 6.2 Mappings
 ------------
+
+Mappings have only one form: **block mapping**.
+
+There are no flow mappings (``{...}``) and no quoted scalars in SIML.
 
 A mapping is an ordered list of entries written as mapping entry lines.
 
