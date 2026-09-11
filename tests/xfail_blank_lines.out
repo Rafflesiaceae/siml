@@ -1,5 +1,0 @@
-STREAM_START
-DOCUMENT_START
-MAPPING_START
-MAPPING_START key=parent
-SCALAR key=child value='value'

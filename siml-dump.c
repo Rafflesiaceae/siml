@@ -11,9 +11,9 @@ struct file_reader {
     size_t  cap;
 };
 
-static int
-siml_file_read_line(void *userdata, const char **out_line, size_t *out_len)
-{
+static int siml_file_read_line(void *userdata,
+                               const char **out_line,
+                               size_t *out_len) {
     struct file_reader *r;
     size_t len;
     int ch;
@@ -57,7 +57,7 @@ siml_file_read_line(void *userdata, const char **out_line, size_t *out_len)
         return -1;
     }
     if (ch == EOF && len == 0) {
-        return 0; /* EOF */
+        return 0;
     }
 
     r->buf[len] = '\0';
@@ -66,26 +66,20 @@ siml_file_read_line(void *userdata, const char **out_line, size_t *out_len)
     return 1;
 }
 
-static void
-print_slice(const siml_slice *s)
-{
+static void print_slice(const siml_slice *s) {
     if (s && s->ptr && s->len > 0) {
-        fwrite(s->ptr, 1, s->len, stdout);
+        (void)fwrite(s->ptr, 1, s->len, stdout);
     }
 }
 
-static void
-print_inline_comment(const siml_event *ev)
-{
+static void print_inline_comment(const siml_event *ev) {
     if (ev->inline_comment.ptr && ev->inline_comment.len > 0) {
-        printf("  # (spaces=%u) ", ev->inline_comment_spaces);
+        (void)printf("  # (spaces=%u) ", ev->inline_comment_spaces);
         print_slice(&ev->inline_comment);
     }
 }
 
-int
-main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     const char *filename;
     FILE *fp;
     siml_parser parser;
@@ -94,7 +88,7 @@ main(int argc, char **argv)
     int rc;
 
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <file.siml>\n", argv[0]);
+        (void)fprintf(stderr, "Usage: %s <file.siml>\n", argv[0]);
         return 1;
     }
 
@@ -121,87 +115,88 @@ main(int argc, char **argv)
         siml_event_type t;
         t = siml_next(&parser, &ev);
         if (t == SIML_EVENT_ERROR) {
-            fprintf(stderr, "SIML error at line %ld: %s\n",
-                    ev.line, ev.error_message ? ev.error_message : "parse error");
+            (void)fprintf(stderr, "SIML error at line %ld: %s\n",
+                          ev.line,
+                          ev.error_message ? ev.error_message : "parse error");
             rc = 1;
             break;
         }
         if (t == SIML_EVENT_STREAM_END) {
-            printf("STREAM_END\n");
+            (void)printf("STREAM_END\n");
             break;
         }
 
         switch (t) {
         case SIML_EVENT_STREAM_START:
-            printf("STREAM_START\n");
+            (void)printf("STREAM_START\n");
             break;
         case SIML_EVENT_DOCUMENT_START:
-            printf("DOCUMENT_START\n");
+            (void)printf("DOCUMENT_START\n");
             break;
         case SIML_EVENT_DOCUMENT_END:
-            printf("DOCUMENT_END\n");
+            (void)printf("DOCUMENT_END\n");
             break;
         case SIML_EVENT_MAPPING_START:
-            printf("MAPPING_START");
+            (void)printf("MAPPING_START");
             if (ev.key.len > 0) {
-                printf(" key=");
+                (void)printf(" key=");
                 print_slice(&ev.key);
             }
-            printf("\n");
+            (void)printf("\n");
             break;
         case SIML_EVENT_MAPPING_END:
-            printf("MAPPING_END\n");
+            (void)printf("MAPPING_END\n");
             break;
         case SIML_EVENT_SEQUENCE_START:
-            printf("SEQUENCE_START");
+            (void)printf("SEQUENCE_START");
             if (ev.seq_style == SIML_SEQ_STYLE_FLOW) {
-                printf(" style=flow");
+                (void)printf(" style=flow");
             } else {
-                printf(" style=block");
+                (void)printf(" style=block");
             }
             if (ev.key.len > 0) {
-                printf(" key=");
+                (void)printf(" key=");
                 print_slice(&ev.key);
             }
             print_inline_comment(&ev);
-            printf("\n");
+            (void)printf("\n");
             break;
         case SIML_EVENT_SEQUENCE_END:
-            printf("SEQUENCE_END\n");
+            (void)printf("SEQUENCE_END\n");
             break;
         case SIML_EVENT_SCALAR:
-            printf("SCALAR");
+            (void)printf("SCALAR");
             if (ev.key.len > 0) {
-                printf(" key=");
+                (void)printf(" key=");
                 print_slice(&ev.key);
             }
-            printf(" value='");
+            (void)printf(" value='");
             print_slice(&ev.value);
-            printf("'");
+            (void)printf("'");
             print_inline_comment(&ev);
-            printf("\n");
+            (void)printf("\n");
             break;
         case SIML_EVENT_BLOCK_SCALAR_START:
-            printf("BLOCK_SCALAR_START");
+            (void)printf("BLOCK_SCALAR_START");
             if (ev.key.len > 0) {
-                printf(" key=");
+                (void)printf(" key=");
                 print_slice(&ev.key);
             }
             print_inline_comment(&ev);
-            printf("\n");
+            (void)printf("\n");
             break;
         case SIML_EVENT_BLOCK_SCALAR_LINE:
-            printf("BLOCK_SCALAR_LINE '");
+            (void)printf("BLOCK_SCALAR_LINE '");
             print_slice(&ev.value);
-            printf("'\n");
+            (void)printf("'\n");
             break;
         case SIML_EVENT_BLOCK_SCALAR_END:
-            printf("BLOCK_SCALAR_END\n");
+            (void)printf("BLOCK_SCALAR_END\n");
             break;
         case SIML_EVENT_COMMENT:
-            printf("COMMENT ");
+            (void)printf("COMMENT ");
             print_slice(&ev.value);
-            printf("\n");
+            (void)printf("\n");
             break;
         default:
             break;

@@ -3,4 +3,4 @@ project('siml', 'c',
   default_options: ['c_std=c89', 'warning_level=2']
 )
 
-executable('siml-dump', 'siml.c')
+executable('siml-dump', 'siml-dump.c')
