@@ -23,7 +23,7 @@ dump_scalar(void *user_data,
 {
     (void) user_data;
 
-    printf("  %s = %s\n", key, value);
+    printf("  %s = '%s'\n", key, value);
 }
 
 static void
@@ -33,7 +33,7 @@ dump_list_element(void *user_data,
 {
     (void) user_data;
 
-    printf("  %s[] = %s\n", key, element);
+    printf("  %s[] = '%s'\n", key, element);
 }
 
 static void
@@ -42,7 +42,7 @@ dump_list_empty(void *user_data,
 {
     (void) user_data;
 
-    printf("  %s[] = (empty)\n", key);
+    printf("  %s[] = ''\n", key);
 }
 
 static void
@@ -51,7 +51,7 @@ dump_begin_literal(void *user_data,
 {
     (void) user_data;
 
-    printf("  %s = \"\"\"\n", key);
+    printf("  %s = '''\n", key);
 }
 
 static void
@@ -70,7 +70,7 @@ dump_end_literal(void *user_data,
     (void) user_data;
     (void) key;
 
-    printf("  \"\"\"\n");
+    printf("  '''\n");
 }
 
 int

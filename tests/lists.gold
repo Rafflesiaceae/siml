@@ -1,23 +1,23 @@
 item 0
-  id = list_demo
-  scalars = foo
-  list1[] = a
-  list1[] = b
-  list1[] = c
-  list2[] = single
-  list3[] = (empty)
-  description = """
+  id = 'list_demo'
+  scalars = 'foo'
+  list1[] = 'a'
+  list1[] = 'b'
+  list1[] = 'c'
+  list2[] = 'single'
+  list3[] = ''
+  description = '''
    list demo
-  """
-  empty = 
-  list4[] = with_hash
-  list4[] = value#notcomment
+  '''
+  empty = ''
+  list4[] = 'with_hash'
+  list4[] = 'value#notcomment'
 
 item 1
-  id = block_list_demo
-  tags[] = alpha
-  tags[] = beta
-  flags[] = fast
-  flags[] = stable
-  labels[] = (empty)
-  notes = block list demo after empty labels
+  id = 'block_list_demo'
+  tags[] = 'alpha'
+  tags[] = 'beta'
+  flags[] = 'fast'
+  flags[] = 'stable'
+  labels[] = ''
+  notes = 'block list demo after empty labels'

@@ -1,10 +1,10 @@
 item 0
-  id = commented
-  value = 42
-  flags[] = ONE
-  flags[] = TWO
-  description = """
+  id = 'commented'
+  value = '42'
+  flags[] = 'ONE'
+  flags[] = 'TWO'
+  description = '''
    line1
    # this hash is not a comment
    line3
-  """
+  '''
