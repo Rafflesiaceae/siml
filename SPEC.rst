@@ -153,9 +153,9 @@ Any such line MUST cause a parsing error.
 3.5 Trailing spaces
 -------------------
 
-Outside literal block scalar content (section 7.2), SIML forbids trailing spaces.
+SIML forbids trailing spaces.
 
-* Every non-block-content line MUST end immediately at the last non-space
+* Every line MUST end immediately at the last non-space
   character (followed by the LF).
 
 3.6 Maximum physical line length
@@ -189,7 +189,6 @@ Documents are separated by a line that is exactly:
 * MUST NOT have inline comments
 * MUST NOT appear trailing after the last document
 * MUST NOT appear leading before the first document
-* MUST NOT appear inside literal block scalar content
 
 4.2 Leading and inter-document trivia
 -------------------------------------
@@ -216,7 +215,8 @@ Empty comments are forbidden (both comment lines and inline comments).
 
 A comment line is a line of the form:
 
-* indentation (zero or more spaces; MUST be a multiple of 2),
+* indentation (zero or more spaces; MUST be a multiple of 2) MUST match current
+  nesting level,
 * ``#``,
 * **exactly one space**,
 * **one or more** characters of comment text (up to end of line).
@@ -505,6 +505,7 @@ Block scalar content rules:
 * Blank lines (empty lines) are allowed **only** when they occur **between
   non-blank content lines**. Leading or trailing blank lines are forbidden.
 * Lines containing only spaces or tabs are forbidden.
+* Contents MUST be non-empty, i.e. zero content lines MUST be a parsing error
 
 Additional size limits:
 
@@ -568,7 +569,6 @@ Keys:
 
 * appear only in mapping entry lines,
 * MUST start immediately after the indentation (no leading extra spaces),
-* MUST be unique within a mapping (duplicate keys MUST cause a parsing error).
 
 10. Error Messages
 ==================
@@ -585,6 +585,7 @@ Implementations MUST have the following **separate** error messages:
 * expected single space after ':'
 * nested node indentation mismatch, expected X got Y
 * inline comment must have exactly 1 space after '#'
+* block literal must not be empty
 
 11. Disallowed YAML features (non-goals)
 ========================================
