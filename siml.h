@@ -485,8 +485,8 @@ static int siml_fetch_line(siml_parser *p) {
                     p->at_eof = 1;
                     p->line_cr_code = SIML_ERR_CR;
                 } else {
-                    siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
-                                   "physical line too long (max 4608 bytes)");
+                    siml_set_error(p, SIML_ERR_IO,
+                                   "I/O error while reading input");
                     return -1;
                 }
             }
@@ -536,8 +536,8 @@ static int siml_fetch_line(siml_parser *p) {
                     p->at_eof = 1;
                     p->line_cr_code = SIML_ERR_CR;
                 } else {
-                    siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
-                                   "physical line too long (max 4608 bytes)");
+                    siml_set_error(p, SIML_ERR_IO,
+                                   "I/O error while reading input");
                     return -1;
                 }
             }
@@ -550,8 +550,8 @@ static int siml_fetch_line(siml_parser *p) {
         return 0;
     }
     p->have_line = 0;
-    siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
-                   "physical line too long (max 4608 bytes)");
+    siml_set_error(p, SIML_ERR_IO,
+                   "I/O error while reading input");
     return -1;
 }
 
@@ -681,6 +681,11 @@ static int siml_parse_inline_comment(siml_parser *p,
                     break;
                 }
             }
+        }
+        if (depth != 0) {
+            siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
+                           "unterminated flow sequence on the same line");
+            return 0;
         }
     }
 

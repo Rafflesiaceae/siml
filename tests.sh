@@ -27,10 +27,18 @@ for siml in "$TEST_DIR"/*.siml; do
 
     if [ -f "$xfail" ]; then
         expected_err="$(cat "$xfail")"
-        if "$BIN" "$siml" >"$out" 2>"$err"; then
-            echo "[test] FAILED (expected error but succeeded): $siml" >&2
-            rc=1
-            continue
+        if [[ "$(basename "$siml")" == "xfail_io_error.siml" ]]; then
+            if SIML_TEST_READ_ERROR_AFTER=1 "$BIN" "$siml" >"$out" 2>"$err"; then
+                echo "[test] FAILED (expected error but succeeded): $siml" >&2
+                rc=1
+                continue
+            fi
+        else
+            if "$BIN" "$siml" >"$out" 2>"$err"; then
+                echo "[test] FAILED (expected error but succeeded): $siml" >&2
+                rc=1
+                continue
+            fi
         fi
         if ! grep -F -q "$expected_err" "$err"; then
             echo "[test] FAILED (error mismatch): $siml" >&2

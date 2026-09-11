@@ -9,6 +9,8 @@ struct file_reader {
     FILE   *fp;
     char   *buf;
     size_t  cap;
+    size_t  lines_read;
+    long    fail_after;
 };
 
 static int siml_file_read_line(void *userdata,
@@ -25,6 +27,9 @@ static int siml_file_read_line(void *userdata,
         return -1;
     }
     if (!r->fp) {
+        return -1;
+    }
+    if (r->fail_after >= 0 && r->lines_read >= (size_t)r->fail_after) {
         return -1;
     }
 
@@ -63,6 +68,7 @@ static int siml_file_read_line(void *userdata,
     r->buf[len] = '\0';
     *out_line = r->buf;
     *out_len  = len;
+    r->lines_read += 1;
     return 1;
 }
 
@@ -107,6 +113,17 @@ int main(int argc, char **argv) {
     reader.fp  = fp;
     reader.buf = NULL;
     reader.cap = 0;
+    reader.lines_read = 0;
+    reader.fail_after = -1;
+    {
+        const char *env = getenv("SIML_TEST_READ_ERROR_AFTER");
+        if (env && env[0] != '\0') {
+            reader.fail_after = strtol(env, NULL, 10);
+            if (reader.fail_after < 0) {
+                reader.fail_after = -1;
+            }
+        }
+    }
 
     siml_parser_init(&parser, siml_file_read_line, &reader);
 
