@@ -109,7 +109,19 @@ static int emit_line_end(struct buffer *b) {
 
 static int emit_prefix(struct buffer *b, size_t indent,
                        const char *key, size_t key_len,
-                       int in_sequence, int has_inline_value) {
+                       int in_sequence, int has_inline_value,
+                       int inline_mapping_first) {
+    if (inline_mapping_first) {
+        if (!buf_append_spaces(b, indent - 2)) return 0;
+        if (!buf_append(b, "- ", 2)) return 0;
+        if (!buf_append(b, key, key_len)) return 0;
+        if (has_inline_value) {
+            if (!buf_append(b, ": ", 2)) return 0;
+        } else {
+            if (!buf_append(b, ":", 1)) return 0;
+        }
+        return 1;
+    }
     if (!buf_append_spaces(b, indent)) return 0;
     if (in_sequence) {
         if (!buf_append(b, "-", 1)) return 0;
@@ -177,9 +189,11 @@ int main(int argc, char **argv) {
     int rc;
     size_t stack_indent[SIML_MAX_NESTING];
     siml_container_type stack_type[SIML_MAX_NESTING];
+    int stack_inline_mapping[SIML_MAX_NESTING];
     size_t depth;
     size_t cur_indent;
     int in_sequence;
+    int inline_mapping_first;
 
     if (argc != 2) {
         (void)fprintf(stderr, "Usage: %s <file.siml>\n", argv[0]);
@@ -249,6 +263,8 @@ int main(int argc, char **argv) {
 
         in_sequence = (depth > 0 && stack_type[depth - 1] == SIML_CONTAINER_SEQ);
         cur_indent = (depth > 0) ? stack_indent[depth - 1] : 0;
+        inline_mapping_first =
+            (depth > 0 && stack_inline_mapping[depth - 1]);
 
         switch (t) {
         case SIML_EVENT_STREAM_START:
@@ -269,12 +285,16 @@ int main(int argc, char **argv) {
             }
             break;
         case SIML_EVENT_MAPPING_START:
-            if (ev.key.len > 0 || in_sequence) {
+            if (ev.key.len > 0) {
                 if (!emit_prefix(&out, cur_indent,
                                  ev.key.ptr, ev.key.len,
-                                 in_sequence, 0) ||
+                                 in_sequence, 0,
+                                 inline_mapping_first) ||
                     !emit_line_end(&out)) {
                     rc = 1;
+                }
+                if (inline_mapping_first) {
+                    stack_inline_mapping[depth - 1] = 0;
                 }
             }
             if (depth >= SIML_MAX_NESTING) {
@@ -283,6 +303,7 @@ int main(int argc, char **argv) {
             }
             stack_type[depth] = SIML_CONTAINER_MAP;
             stack_indent[depth] = (depth == 0) ? 0 : (cur_indent + 2);
+            stack_inline_mapping[depth] = in_sequence;
             depth += 1;
             break;
         case SIML_EVENT_SEQUENCE_START:
@@ -326,7 +347,8 @@ int main(int argc, char **argv) {
                 cur_indent = (depth > 0) ? stack_indent[depth - 1] : 0;
                 if (!emit_prefix(&out, cur_indent,
                                  key.ptr, key.len,
-                                 in_sequence, 1) ||
+                                 in_sequence, 1,
+                                 inline_mapping_first) ||
                     !buf_append(&out, flow.data, flow.len) ||
                     !emit_inline_comment(&out, comment_spaces,
                                          &comment) ||
@@ -335,6 +357,9 @@ int main(int argc, char **argv) {
                     rc = 1;
                     break;
                 }
+                if (inline_mapping_first) {
+                    stack_inline_mapping[depth - 1] = 0;
+                }
                 free(flow.data);
                 break;
             }
@@ -342,9 +367,13 @@ int main(int argc, char **argv) {
             if (ev.key.len > 0 || in_sequence) {
                 if (!emit_prefix(&out, cur_indent,
                                  ev.key.ptr, ev.key.len,
-                                 in_sequence, 0) ||
+                                 in_sequence, 0,
+                                 inline_mapping_first) ||
                     !emit_line_end(&out)) {
                     rc = 1;
+                }
+                if (inline_mapping_first) {
+                    stack_inline_mapping[depth - 1] = 0;
                 }
             }
             if (depth >= SIML_MAX_NESTING) {
@@ -353,6 +382,7 @@ int main(int argc, char **argv) {
             }
             stack_type[depth] = SIML_CONTAINER_SEQ;
             stack_indent[depth] = (depth == 0) ? 0 : (cur_indent + 2);
+            stack_inline_mapping[depth] = 0;
             depth += 1;
             break;
         case SIML_EVENT_MAPPING_END:
@@ -362,23 +392,31 @@ int main(int argc, char **argv) {
         case SIML_EVENT_SCALAR:
             if (!emit_prefix(&out, cur_indent,
                              ev.key.ptr, ev.key.len,
-                             in_sequence, 1) ||
+                             in_sequence, 1,
+                             inline_mapping_first) ||
                 !buf_append(&out, ev.value.ptr, ev.value.len) ||
                 !emit_inline_comment(&out, ev.inline_comment_spaces,
                                      &ev.inline_comment) ||
                 !emit_line_end(&out)) {
                 rc = 1;
             }
+            if (inline_mapping_first) {
+                stack_inline_mapping[depth - 1] = 0;
+            }
             break;
         case SIML_EVENT_BLOCK_SCALAR_START:
             if (!emit_prefix(&out, cur_indent,
                              ev.key.ptr, ev.key.len,
-                             in_sequence, 1) ||
+                             in_sequence, 1,
+                             inline_mapping_first) ||
                 !buf_append(&out, "|", 1) ||
                 !emit_inline_comment(&out, ev.inline_comment_spaces,
                                      &ev.inline_comment) ||
                 !emit_line_end(&out)) {
                 rc = 1;
+            }
+            if (inline_mapping_first) {
+                stack_inline_mapping[depth - 1] = 0;
             }
             break;
         case SIML_EVENT_BLOCK_SCALAR_LINE:

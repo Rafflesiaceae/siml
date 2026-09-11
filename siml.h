@@ -112,7 +112,8 @@ typedef enum siml_error_code {
     SIML_ERR_BLOCK_LEADING_BLANK,
     SIML_ERR_BLOCK_TRAILING_BLANK,
     SIML_ERR_BLOCK_LINE_TOO_LONG,
-    SIML_ERR_BLOCK_WHITESPACE_ONLY
+    SIML_ERR_BLOCK_WHITESPACE_ONLY,
+    SIML_ERR_SEQ_MAP_REQUIRES_INLINE
 } siml_error_code;
 
 /* Event types for the pull parser */
@@ -239,6 +240,10 @@ typedef struct siml_parser_s {
     size_t            pending_indent;
     char              pending_key[SIML_MAX_KEY_LEN + 1];
     size_t            pending_key_len;
+
+    /* Mapping entry introduced on a sequence item line */
+    int               inline_mapping_entry;
+    size_t            inline_mapping_indent;
 
     /* Pending end/start events */
     int               pending_close;
@@ -900,6 +905,8 @@ void siml_parser_reset(siml_parser *p) {
     p->pending_indent = 0;
     p->pending_key[0] = '\0';
     p->pending_key_len = 0;
+    p->inline_mapping_entry = 0;
+    p->inline_mapping_indent = 0;
     p->pending_close = 0;
     p->target_depth = 0;
     p->pending_doc_end = 0;
@@ -1108,6 +1115,22 @@ static int siml_parse_sequence_item(siml_parser *p,
     }
     *out_has_inline_value = 1;
     return 1;
+}
+
+static int siml_starts_mapping_entry(const char *s,
+                                     size_t start,
+                                     size_t value_len) {
+    size_t i;
+    size_t end = start + value_len;
+
+    if (start >= end || (!siml_is_alpha(s[start]) && s[start] != '_')) {
+        return 0;
+    }
+    i = start + 1;
+    while (i < end && siml_is_key_char(s[i])) {
+        ++i;
+    }
+    return i < end && s[i] == ':';
 }
 
 static int siml_prepare_flow_sequence(siml_parser *p,
@@ -1680,7 +1703,14 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             int is_sequence = 0;
             siml_container *cur = 0;
 
-            if (!siml_count_indent(p, s, len, &indent)) return SIML_EVENT_ERROR;
+            if (p->inline_mapping_entry) {
+                indent = p->inline_mapping_indent;
+                p->inline_mapping_entry = 0;
+            } else {
+                if (!siml_count_indent(p, s, len, &indent)) {
+                    return SIML_EVENT_ERROR;
+                }
+            }
 
             if (indent == 0 && len >= 3 && s[0] == '-' && s[1] == '-' && s[2] == '-') {
                 if (has_trailing_spaces && len == 3) {
@@ -1776,6 +1806,12 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 if (!p->in_document) {
                     siml_set_error(p, SIML_ERR_DOC_SCALAR,
                                    "document root must not be a scalar");
+                    return SIML_EVENT_ERROR;
+                }
+                if (p->pending_kind == SIML_PENDING_SEQ && is_mapping) {
+                    siml_set_error(
+                        p, SIML_ERR_SEQ_MAP_REQUIRES_INLINE,
+                        "mapping sequence item must start after '- '");
                     return SIML_EVENT_ERROR;
                 }
                 if (is_mapping) {
@@ -1906,6 +1942,18 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 return SIML_EVENT_ERROR;
             }
             cur->item_count += 1;
+
+            if (has_inline_value &&
+                siml_starts_mapping_entry(s, value_start, value_len)) {
+                if (!siml_request_container_start(p, SIML_CONTAINER_MAP,
+                                                  SIML_SEQ_STYLE_BLOCK,
+                                                  indent + 2, "", 0)) {
+                    return SIML_EVENT_ERROR;
+                }
+                p->inline_mapping_entry = 1;
+                p->inline_mapping_indent = indent + 2;
+                return siml_emit_pending_start(p, ev);
+            }
 
             if (!has_inline_value) {
                 p->pending_kind = SIML_PENDING_SEQ;
