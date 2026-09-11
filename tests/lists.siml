@@ -1,0 +1,8 @@
+- id: list_demo
+  scalars: foo
+  list1: [a, b, c] # simple list
+  list2: [single]
+  list3: []  # empty list
+  list4: [with_hash, value#notcomment]
+  description: |
+    list demo
