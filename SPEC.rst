@@ -6,8 +6,8 @@ parser can be written in short, clean ANSI C using only the standard
 library.
 
 It is line-oriented, has a fixed structure, and does not support arbitrary
-nesting. It is meant for files like lists of configuration records
-(e.g. CVAR definitions), not as a general data language.
+nesting. It is meant for files like lists of configuration records, 
+not as a general data language.
 
 Example
 -------
