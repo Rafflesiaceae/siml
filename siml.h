@@ -1502,29 +1502,19 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
     }
 }
 
-static int siml_comment_indent_allowed(siml_parser *p, size_t indent) {
+/* Returns the container depth to close to before emitting the comment
+ * (0 = none), or -1 if the indent is not valid at the current state.
+ */
+static int siml_comment_check_indent(siml_parser *p, size_t indent) {
     int i;
-
-    if (p->pending_map) {
-        return indent == p->pending_indent;
-    }
-
-    if (p->depth == 0) {
-        return indent == 0;
-    }
-
-    for (i = p->depth - 1; i >= 0; --i) {
-        if (p->stack[i].indent == indent) return 1;
-    }
-    return 0;
-}
-
-static int siml_find_indent_target(siml_parser *p, size_t indent) {
-    int i;
-    for (i = p->depth - 1; i >= 0; --i) {
-        if (p->stack[i].indent == indent) {
-            return i + 1;
-        }
+    if (p->pending_map)
+        return (indent == p->pending_indent) ? 0 : -1;
+    if (p->depth == 0)
+        return (indent == 0) ? 0 : -1;
+    if (p->stack[p->depth - 1].indent == indent)
+        return 0;
+    for (i = p->depth - 2; i >= 0; --i) {
+        if (p->stack[i].indent == indent) return i + 1;
     }
     return -1;
 }
@@ -1584,24 +1574,18 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                    "trailing spaces are not allowed here");
                     return SIML_EVENT_ERROR;
                 }
-                if (!siml_comment_indent_allowed(p, indent)) {
-                    siml_set_error(p, SIML_ERR_COMMENT_INDENT,
-                                   "comment indentation must match current nesting level");
-                    return SIML_EVENT_ERROR;
-                }
-                if (!p->pending_map && p->depth > 0 &&
-                    indent < p->stack[p->depth - 1].indent) {
-                    int target = siml_find_indent_target(p, indent);
-                    if (target < 0) {
-                        siml_set_error_one(p, SIML_ERR_INDENT_WRONG,
-                                           "wrong indentation, expected: ",
-                                           (unsigned long)p->stack[p->depth - 1].indent,
-                                           "");
+                {
+                    int ctarget = siml_comment_check_indent(p, indent);
+                    if (ctarget < 0) {
+                        siml_set_error(p, SIML_ERR_COMMENT_INDENT,
+                                       "comment indentation must match current nesting level");
                         return SIML_EVENT_ERROR;
                     }
-                    p->pending_close = 1;
-                    p->target_depth = target;
-                    return siml_emit_pending_end(p, ev);
+                    if (ctarget > 0) {
+                        p->pending_close = 1;
+                        p->target_depth = ctarget;
+                        return siml_emit_pending_end(p, ev);
+                    }
                 }
                 ev->type = SIML_EVENT_COMMENT;
                 ev->value = siml_make_slice(p->line, trimmed_len);
@@ -1786,7 +1770,12 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             }
 
             if (indent < cur->indent) {
-                int target = siml_find_indent_target(p, indent);
+                int target;
+                int ti;
+                for (ti = p->depth - 1; ti >= 0; --ti) {
+                    if (p->stack[ti].indent == indent) break;
+                }
+                target = (ti >= 0) ? ti + 1 : -1;
                 if (target < 0) {
                     siml_set_error_one(p, SIML_ERR_INDENT_WRONG,
                                        "wrong indentation, expected: ",
