@@ -16,6 +16,5 @@ labels: [
   experimental,
 ]
 notes: bracket list variants after empty labels
-
 --- # trailing separator should be ignored
 # vim: set ft=yaml:

@@ -421,7 +421,8 @@ Block scalar content rules:
 Inside literal block scalar content:
 
 * No comment parsing is performed.
-* Any characters are allowed (including ``#``, ``:``, ``---``, commas, tabs).
+* Any characters are allowed (including ``#``, ``:``, ``---``, commas, tabs),
+  except forbidden CR.
 
 
 8. Nesting and termination (indent stack rules)
@@ -536,3 +537,14 @@ Because structural formatting is otherwise canonical (fixed indentation, fixed
 spacing, no trailing spaces, no multi-line flow syntax), emitting structure is
 trivial and deterministic, enabling perfect round-trip of any valid ``.siml``
 file.
+
+13. Reference Implementation
+-------------------------
+
+It thus should be easily possible to write a header-only, pure ANSI C89
+implementation of the SIML specification.
+
+With:
+ - No dynamic allocation.
+ - No I/O. The caller provides a line-reading callback.
+ - Pull parser API: the caller repeatedly calls siml_next() to obtain events.
