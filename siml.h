@@ -498,11 +498,13 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             return SIML_EVENT_ERROR;
         }
         ++i; /* skip ':' */
-        if (i >= len || s[i] != ' ') {
-            siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "SIML: expected space after 'key:'");
-            return SIML_EVENT_ERROR;
+        if (i < len) {
+            if (s[i] != ' ') {
+                siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "SIML: expected space after 'key:'");
+                return SIML_EVENT_ERROR;
+            }
+            ++i; /* skip space after colon */
         }
-        ++i; /* skip space after colon */
 
         if (key_end - key_start > SIML_MAX_KEY_LEN) {
             siml_set_error(p, SIML_ERR_BAD_KEY, "SIML: key too long");
@@ -745,13 +747,27 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
         return ev->type;
     }
 
-    /* Empty line: becomes an empty line in the resulting string. */
+    /* Empty line handling: include it only if the block continues. */
     if (p->line_len == 0) {
+        int peek_rc;
+        /* Look ahead to decide whether the block continues. */
+        peek_rc = siml_fetch_line(p);
+        if (peek_rc < 0) return SIML_EVENT_ERROR;
+        if (peek_rc == 0 || (p->line_len > 0 && p->line[0] != ' ')) {
+            /* Trailing blank line before termination: do not include it. */
+            p->mode = SIML_MODE_NORMAL;
+            ev->type = SIML_EVENT_FIELD_BLOCK_END;
+            ev->key  = siml_make_slice(p->key_buf, p->key_len);
+            ev->value.ptr = 0;
+            ev->value.len = 0;
+            ev->line = p->block_start_line;
+            return ev->type;
+        }
+        /* Block continues; emit the empty line and keep the peeked line for next call. */
         ev->type = SIML_EVENT_FIELD_BLOCK_LINE;
         ev->key  = siml_make_slice(p->key_buf, p->key_len);
         ev->value = siml_make_slice("", 0);
         ev->line = p->line_no;
-        p->have_line = 0; /* consume */
         return ev->type;
     }
 

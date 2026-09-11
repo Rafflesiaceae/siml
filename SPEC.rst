@@ -193,6 +193,9 @@ Rules:
    * Any line with a non-space character at column 0, or
    * End of file.
 
+   Trailing blank lines immediately before these terminators are ignored and
+   are not part of the block content.
+
 3. Every non-empty content line MUST start with exactly two spaces. The parser
    strips these two spaces and uses the remainder of the line as text. Anything
    after the first two spaces (including ``#``, ``:``, ``---``, or tabs) is
