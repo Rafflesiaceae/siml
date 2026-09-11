@@ -223,6 +223,12 @@ Only comment lines (section 5) MAY appear:
 Blank lines and whitespace-only lines MUST NOT appear outside block scalar
 content.
 
+The first structural line of each document MUST be at indentation 0.
+
+(That is: after any leading comment lines, and after any ``---`` separator and
+any inter-document comment lines, the next non-comment line that begins a
+document MUST be a structural line at indent 0.)
+
 
 5. Comment lines and inline comments
 ====================================
@@ -595,7 +601,8 @@ indentation stack.
 
 State:
 
-* ``stack``: indentation levels (in spaces) of currently-open nodes
+* ``stack``: indentation levels (in spaces) of currently-open nodes.
+  **stack is initialized to ``[0]`` (a sentinel root level), and never pops below 0.**
 * ``pending``: either “none”, or a required indentation ``P`` for the first
   structural line of a nested node introduced by a header-only ``key:`` or ``-``
 
@@ -617,11 +624,12 @@ Algorithm for each incoming non-block-scalar physical line:
      Clear ``pending`` and continue processing the structural line at indent ``P``.
 
 4. Dedent (applies uniformly to comments and structural lines):
-   While ``stack`` is non-empty and top(stack) > ``C``, pop(stack).
+   While top(stack) > ``C``, pop(stack).
+   The sentinel root level 0 MUST NOT be popped.
 
 5. If the line is a comment line:
    * Its indentation MUST be one of the open levels now in ``stack`` (including
-     0 when appropriate). Otherwise error ``comment indentation must match current nesting level``.
+     0). Otherwise error ``comment indentation must match current nesting level``.
    * Attach the comment to indentation level ``C``.
    * Continue to next line. (Comments never push indent, never satisfy header-only nesting.)
 
@@ -724,7 +732,7 @@ Indentation and nesting:
 * indentation must be a multiple of 2 spaces
 * wrong indentation, expected: X
 * nested node indentation mismatch, expected X got Y
-* node kind mixing within the same node at indent X is forbidden
+* node kind mixing at indent X is forbidden
 
 Keys and mapping entries:
 
@@ -765,6 +773,7 @@ Inline values and flow sequences:
 * flow-scalar too long (max 128 bytes)
 * excess non-comment characters after flow sequence termination
 * inline comments not allowed inside flow sequence
+* flow-scalar must not start with '|'
 * flow-scalar must not start with '#'
 
 Literal block scalars:
