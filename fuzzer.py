@@ -5,7 +5,8 @@ fuzzer.py - libFuzzer harness driver for SIML.
 Compiles fuzzer.c with clang if needed, seeds the corpus from the
 testcases/ directory, then runs the fuzzer.  On a clean exit (no
 crashes) it removes fuzz-*.log files, the compiled harness binary, and
-the corpus cache so nothing stale accumulates.
+the corpus cache so nothing stale accumulates.  Pass --cleanup to remove
+those files without running the fuzzer.
 
 Requires clang with libFuzzer support (Linux and macOS; not available
 on Windows without WSL).
@@ -51,6 +52,10 @@ def parse_args():
         '--max-len', type=int, metavar='N',
         help='cap generated input size at N bytes (-max_len=N)',
     )
+    p.add_argument(
+        '--cleanup', action='store_true',
+        help='remove fuzzer temporary files and exit',
+    )
     args = p.parse_args(our_argv)
     args.extra = extra
     return args
@@ -63,11 +68,15 @@ def needs_rebuild(src: Path, hdr: Path, binary: Path) -> bool:
     return src.stat().st_mtime > binary_mtime or hdr.stat().st_mtime > binary_mtime
 
 
-def main() -> int:
-    if platform.system() == 'Windows':
-        print('error: libFuzzer is not supported on Windows; use WSL', file=sys.stderr)
-        return 1
+def cleanup(root: Path, corpus: Path, fuzzer_bin: Path) -> None:
+    for log in root.glob('fuzz-*.log'):
+        log.unlink(missing_ok=True)
+    fuzzer_bin.unlink(missing_ok=True)
+    if corpus.exists():
+        shutil.rmtree(corpus)
 
+
+def main() -> int:
     args = parse_args()
 
     root  = find_root()
@@ -76,6 +85,15 @@ def main() -> int:
     src       = root / 'fuzzer.c'
     hdr       = root / 'siml.h'
     fuzzer_bin = root / 'fuzzer'
+
+    if args.cleanup:
+        print('[fuzz] removing logs, harness binary, and corpus cache...')
+        cleanup(root, corpus, fuzzer_bin)
+        return 0
+
+    if platform.system() == 'Windows':
+        print('error: libFuzzer is not supported on Windows; use WSL', file=sys.stderr)
+        return 1
 
     clang = shutil.which('clang')
     if clang is None:
@@ -112,11 +130,7 @@ def main() -> int:
 
     if rc == 0:
         print('[fuzz] clean run - removing logs, harness binary, and corpus cache...')
-        for log in root.glob('fuzz-*.log'):
-            log.unlink(missing_ok=True)
-        fuzzer_bin.unlink(missing_ok=True)
-        if corpus.exists():
-            shutil.rmtree(corpus)
+        cleanup(root, corpus, fuzzer_bin)
 
     return rc
 
