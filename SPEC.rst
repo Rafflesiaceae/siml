@@ -317,7 +317,7 @@ Notes:
 * Outside literal block scalar content, any ``#`` that is preceded by whitespace
   is reserved for comments; if it does not match the required inline comment
   form ``<spaces># <non-empty-text>``, it MUST cause a parsing error.
-* Inside flow sequences, a scalar atom MUST NOT start with ``#``; ``[#foo]`` is
+* Inside flow sequences, a flow-scalar MUST NOT start with ``#``; ``[#foo]`` is
   invalid even though the ``#`` is not preceded by whitespace.
 * For flow sequences, inline comments MAY appear only after the complete
   ``[...]``.
@@ -454,10 +454,10 @@ Rules:
 Flow element constraints:
 
 * Each element is either:
-  - a **simple scalar atom**, or
+  - a **flow-scalar**, or
   - a **nested flow sequence** (``[...]``), which follows the same rules.
 
-* Scalar atom rules:
+* Flow-scalar rules:
   - MUST be non-empty
   - MUST NOT contain ``,``, ``]``, ``[``, or newline
   - MUST NOT start with ``#``
@@ -761,7 +761,7 @@ Inline values and flow sequences:
 * flow sequence contains whitespace (forbidden)
 * empty flow sequence element
 * trailing comma in flow sequence is forbidden
-* flow sequence atom too long (max 128 bytes)
+* flow-scalar too long (max 128 bytes)
 * excess non-comment characters after flow sequence termination
 * inline comments not allowed inside flow sequence
 * scalar must not start with ``|``
@@ -831,13 +831,13 @@ SIML forbids (MUST NOT support):
    ; preceded by one or more spaces. (Spaces then EOL are forbidden by 3.5.)
    flow_seq        ::= '[' ']' | '[' flow_elem (',' flow_elem)* ']'
 
-   flow_elem       ::= flow_seq | atom
+   flow_elem       ::= flow_seq | flow_scalar
 
-   ; Atom constraints (see 6.3.2):
+   ; Flow-scalar constraints (see 6.3.2):
    ; - non-empty
    ; - must not contain ',', ']', '[', or newline
    ; - must not start with '#' or '|'
-   atom            ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET_LBRACKET)
+   flow_scalar     ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET_LBRACKET)
                        AND not starting with '#' or '|'
 
    ; Plain scalar is the inline value text when it is neither '|' nor a flow sequence.
