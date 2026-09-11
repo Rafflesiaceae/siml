@@ -715,9 +715,6 @@ SIML forbids (MUST NOT support):
 * blank lines outside literal block scalar content
 * lines containing only spaces or tabs outside literal block scalar content
 * empty comments (``#`` / ``#␠``) anywhere outside literal block scalar content
-* arbitrary YAML “compact” forms such as ``- key: value`` in sequences
-  (in SIML, sequence items MUST be either ``- <inline>`` or ``-`` followed by a
-  nested node)
 
 12. Informal grammar (EBNF-ish)
 ===============================
