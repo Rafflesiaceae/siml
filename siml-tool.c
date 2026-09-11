@@ -312,6 +312,11 @@ static int cmd_dump(int argc, char **argv) {
             print_slice(&ev.value);
             (void)printf("\n");
             break;
+        case SIML_EVENT_MAPPING_ENTRY_HEADER:
+            (void)printf("MAPPING_ENTRY_HEADER key=");
+            print_slice(&ev.key);
+            (void)printf("\n");
+            break;
         default:
             break;
         }
@@ -399,7 +404,6 @@ static int cmd_roundtrip(int argc, char **argv) {
     char *file_data;
     struct mem_reader reader;
     struct buffer out;
-    struct buffer deferred; /* comments buffered past a pending-map key line */
     siml_parser parser;
     siml_event ev;
     int rc;
@@ -442,13 +446,10 @@ static int cmd_roundtrip(int argc, char **argv) {
     reader.len  = read_size;
     reader.pos  = 0;
 
-    out.data      = NULL;
-    out.len       = 0;
-    out.cap       = 0;
-    deferred.data = NULL;
-    deferred.len  = 0;
-    deferred.cap  = 0;
-    depth         = 0;
+    out.data = NULL;
+    out.len  = 0;
+    out.cap  = 0;
+    depth    = 0;
 
     siml_parser_init(&parser, mem_read_line, &reader);
 
@@ -472,27 +473,20 @@ static int cmd_roundtrip(int argc, char **argv) {
                     rc = 1;
             }
             break;
-        case SIML_EVENT_COMMENT: {
-            /* When a mapping key-only line (e.g. "ab:") is followed by
-             * comments before its child container, the parser emits those
-             * COMMENTs before the SEQUENCE_START/MAPPING_START that carries
-             * the key.  Detect this by comparing the comment's own indent
-             * against the current container indent: if we are inside a MAP
-             * and the comment is indented deeper, it belongs after the key
-             * line that has not been output yet — buffer it for later. */
-            size_t ci = 0;
-            while (ci < ev.value.len && ev.value.ptr[ci] == ' ') ci++;
-            if (!in_sequence && ci > cur_indent) {
-                if (!buf_append(&deferred, ev.value.ptr, ev.value.len) ||
-                    !buf_append_char(&deferred, '\n'))
-                    rc = 1;
-            } else {
-                if (!buf_append(&out, ev.value.ptr, ev.value.len) ||
-                    !buf_append_char(&out, '\n'))
-                    rc = 1;
-            }
+        case SIML_EVENT_COMMENT:
+            if (!buf_append(&out, ev.value.ptr, ev.value.len) ||
+                !buf_append_char(&out, '\n'))
+                rc = 1;
             break;
-        }
+        case SIML_EVENT_MAPPING_ENTRY_HEADER:
+            if (!emit_prefix(&out, cur_indent,
+                             ev.key.ptr, ev.key.len,
+                             in_sequence, 0, inline_prefixes) ||
+                !buf_append_char(&out, '\n'))
+                rc = 1;
+            if (inline_prefixes > 0)
+                stack_inline_prefixes[depth - 1] = 0;
+            break;
         case SIML_EVENT_MAPPING_START:
             if (ev.key.len > 0) {
                 if (!emit_prefix(&out, cur_indent,
@@ -500,10 +494,6 @@ static int cmd_roundtrip(int argc, char **argv) {
                                  in_sequence, 0, inline_prefixes) ||
                     !buf_append_char(&out, '\n'))
                     rc = 1;
-                if (deferred.len > 0) {
-                    if (!buf_append(&out, deferred.data, deferred.len)) rc = 1;
-                    deferred.len = 0;
-                }
                 if (inline_prefixes > 0)
                     stack_inline_prefixes[depth - 1] = 0;
             }
@@ -566,10 +556,6 @@ static int cmd_roundtrip(int argc, char **argv) {
                                  in_sequence, 0, inline_prefixes) ||
                     !buf_append_char(&out, '\n'))
                     rc = 1;
-                if (deferred.len > 0) {
-                    if (!buf_append(&out, deferred.data, deferred.len)) rc = 1;
-                    deferred.len = 0;
-                }
                 if (inline_prefixes > 0) stack_inline_prefixes[depth - 1] = 0;
             }
             if (depth >= SIML_MAX_NESTING) { rc = 1; break; }
@@ -644,7 +630,6 @@ static int cmd_roundtrip(int argc, char **argv) {
         }
     }
 
-    free(deferred.data);
     free(out.data);
     free(file_data);
     return rc;

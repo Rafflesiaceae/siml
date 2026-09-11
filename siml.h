@@ -137,6 +137,7 @@ typedef enum siml_event_type {
     SIML_EVENT_DOCUMENT_END,
     SIML_EVENT_STREAM_END,
     SIML_EVENT_COMMENT,
+    SIML_EVENT_MAPPING_ENTRY_HEADER,
     SIML_EVENT_ERROR
 } siml_event_type;
 
@@ -175,6 +176,10 @@ typedef int (*siml_read_line_fn)(void *userdata,
  *  - For SCALAR, value is the scalar text.
  *  - For BLOCK_SCALAR_LINE, value is the line text (without indent).
  *  - For COMMENT, value is the entire line (without the trailing LF).
+ *  - For MAPPING_ENTRY_HEADER, key is the mapping key from a header-only
+ *    "key:\n" line. The following MAPPING_START or SEQUENCE_START will have
+ *    an empty key (delivered here). COMMENT events between the header line
+ *    and the container start appear between these two events in the stream.
  *  - inline_comment_* are set only on events introduced by inline values.
  */
 typedef struct siml_event_s {
@@ -1700,11 +1705,12 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 if (!has_inline_value) {
                     p->pending_map = 1;
                     p->pending_indent = indent + 2;
-                    memcpy(p->pending_key, s + indent, key_len);
-                    p->pending_key[key_len] = '\0';
-                    p->pending_key_len = key_len;
+                    p->pending_key_len = 0;
                     p->have_line = 0;
-                    continue;
+                    ev->type = SIML_EVENT_MAPPING_ENTRY_HEADER;
+                    ev->key  = siml_make_slice(s + indent, key_len);
+                    ev->line = p->line_no;
+                    return ev->type;
                 }
 
                 return siml_handle_inline_value(

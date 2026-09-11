@@ -2,7 +2,8 @@ STREAM_START
 DOCUMENT_START
 MAPPING_START
 SCALAR key=id value='block_content_doc_separator'
-MAPPING_START key=foo
+MAPPING_ENTRY_HEADER key=foo
+MAPPING_START
 SCALAR key=bar value='qwe'
 MAPPING_END
 BLOCK_SCALAR_START key=text

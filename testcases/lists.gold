@@ -16,7 +16,8 @@ SEQUENCE_END
 BLOCK_SCALAR_START key=description
 BLOCK_SCALAR_LINE 'list demo'
 BLOCK_SCALAR_END
-MAPPING_START key=empty
+MAPPING_ENTRY_HEADER key=empty
+MAPPING_START
 SCALAR key=nested value='value'
 MAPPING_END
 SEQUENCE_START style=flow key=list4

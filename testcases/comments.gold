@@ -2,7 +2,8 @@ STREAM_START
 COMMENT # full-line comment before the first item
 DOCUMENT_START
 MAPPING_START
-MAPPING_START key=id
+MAPPING_ENTRY_HEADER key=id
+MAPPING_START
 SCALAR key=value value='42'  # (spaces=2) the answer
 MAPPING_END
 COMMENT # another comment
