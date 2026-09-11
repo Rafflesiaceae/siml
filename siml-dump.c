@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
     const char *filename;
     FILE *fp;
     siml_parser parser;
+    siml_scratch scratch;
     siml_event ev;
     struct file_reader reader;
     int rc;
@@ -133,7 +134,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    siml_parser_init(&parser, siml_file_read_line, &reader);
+    siml_parser_init(&parser, &scratch, siml_file_read_line, &reader);
 
     rc = 0;
     while (1) {

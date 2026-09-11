@@ -180,6 +180,7 @@ int main(int argc, char **argv) {
     struct mem_reader reader;
     struct buffer out;
     siml_parser parser;
+    siml_scratch scratch;
     siml_event ev;
     int rc;
     size_t stack_indent[SIML_MAX_NESTING];
@@ -240,7 +241,7 @@ int main(int argc, char **argv) {
 
     depth = 0;
 
-    siml_parser_init(&parser, siml_mem_read_line, &reader);
+    siml_parser_init(&parser, &scratch, siml_mem_read_line, &reader);
 
     rc = 0;
     for (;;) {

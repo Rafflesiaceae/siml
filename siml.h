@@ -140,7 +140,9 @@ typedef enum siml_seq_style {
     SIML_SEQ_STYLE_FLOW  = 1
 } siml_seq_style;
 
-/* String slice referencing caller-owned memory */
+/* String slice referencing parser-internal or callback-owned memory.
+ * Valid only until the next call to siml_next(). Copy before then if needed.
+ */
 typedef struct siml_slice_s {
     const char *ptr;
     size_t      len;
@@ -204,7 +206,23 @@ typedef enum siml_pending_kind_e {
     SIML_PENDING_MAP
 } siml_pending_kind;
 
-/* Parser state */
+/* Caller-supplied scratch buffer holding all variable-sized arrays. Allocate
+ * however suits the target (stack, static, heap). Must outlive the parser.
+ */
+typedef struct siml_scratch_s {
+    char              peek_buf[SIML_MAX_LINE_LEN + 1];
+    char              pending_key[SIML_MAX_KEY_LEN + 1];
+    char              pending_container_key[SIML_MAX_KEY_LEN + 1];
+    char              flow_key[SIML_MAX_KEY_LEN + 1];
+    char              block_key[SIML_MAX_KEY_LEN + 1];
+    siml_container    stack[SIML_MAX_NESTING];
+    size_t            flow_stack_start[SIML_MAX_NESTING];
+    size_t            flow_stack_end[SIML_MAX_NESTING];
+    size_t            flow_stack_pos[SIML_MAX_NESTING];
+    int               flow_stack_started[SIML_MAX_NESTING];
+} siml_scratch;
+
+/* Parser state — all variable-sized buffers live in siml_scratch. */
 typedef struct siml_parser_s {
     /* User-supplied input */
     siml_read_line_fn read_line;
@@ -218,7 +236,7 @@ typedef struct siml_parser_s {
     int               at_eof;      /* boolean */
     int               have_peek;   /* boolean */
     size_t            peek_len;
-    char              peek_buf[SIML_MAX_LINE_LEN + 1];
+    char             *peek_buf;
     siml_error_code   line_cr_code;
 
     /* High-level document state */
@@ -231,13 +249,13 @@ typedef struct siml_parser_s {
     siml_mode         mode;
 
     /* Container stack */
-    siml_container    stack[SIML_MAX_NESTING];
+    siml_container   *stack;
     int               depth;
 
     /* Pending header-only value */
     siml_pending_kind pending_kind;
     size_t            pending_indent;
-    char              pending_key[SIML_MAX_KEY_LEN + 1];
+    char             *pending_key;
     size_t            pending_key_len;
 
     /* Nested item introduced on the current sequence item line */
@@ -252,17 +270,17 @@ typedef struct siml_parser_s {
     int               pending_container_start;
     siml_container_type pending_container_type;
     siml_seq_style    pending_seq_style;
-    char              pending_container_key[SIML_MAX_KEY_LEN + 1];
+    char             *pending_container_key;
     size_t            pending_container_key_len;
     int               pending_stream_end;
 
     /* Flow sequence parsing state */
     int               flow_depth;
-    size_t            flow_stack_start[SIML_MAX_NESTING];
-    size_t            flow_stack_end[SIML_MAX_NESTING];
-    size_t            flow_stack_pos[SIML_MAX_NESTING];
-    int               flow_stack_started[SIML_MAX_NESTING];
-    char              flow_key[SIML_MAX_KEY_LEN + 1];
+    size_t           *flow_stack_start;
+    size_t           *flow_stack_end;
+    size_t           *flow_stack_pos;
+    int              *flow_stack_started;
+    char             *flow_key;
     size_t            flow_key_len;
     unsigned int      flow_inline_spaces;
     const char       *flow_inline_comment;
@@ -270,7 +288,7 @@ typedef struct siml_parser_s {
 
     /* Block scalar parsing state */
     size_t            block_indent;
-    char              block_key[SIML_MAX_KEY_LEN + 1];
+    char             *block_key;
     size_t            block_key_len;
     unsigned int      block_inline_spaces;
     const char       *block_inline_comment;
@@ -288,10 +306,12 @@ typedef struct siml_parser_s {
     long              error_line;
 } siml_parser;
 
-/* Initialize parser. The parser object can be stack- or statically-allocated.
- * It does not own userdata.
+/* Initialize parser. Both parser and scratch may be stack- or
+ * statically-allocated. scratch must outlive the parser.
+ * siml_parser_reset() may be called after init to reparse with the same scratch.
  */
 void siml_parser_init(siml_parser *p,
+                      siml_scratch *scratch,
                       siml_read_line_fn read_line,
                       void *userdata);
 
@@ -875,11 +895,22 @@ static siml_event_type siml_emit_pending_start(siml_parser *p, siml_event *ev) {
 /* Parser public functions ----------------------------------------------- */
 
 void siml_parser_init(siml_parser *p,
+                      siml_scratch *scratch,
                       siml_read_line_fn read_line,
                       void *userdata) {
-    if (!p) return;
-    p->read_line = read_line;
-    p->userdata  = userdata;
+    if (!p || !scratch) return;
+    p->peek_buf              = scratch->peek_buf;
+    p->pending_key           = scratch->pending_key;
+    p->pending_container_key = scratch->pending_container_key;
+    p->flow_key              = scratch->flow_key;
+    p->block_key             = scratch->block_key;
+    p->stack                 = scratch->stack;
+    p->flow_stack_start      = scratch->flow_stack_start;
+    p->flow_stack_end        = scratch->flow_stack_end;
+    p->flow_stack_pos        = scratch->flow_stack_pos;
+    p->flow_stack_started    = scratch->flow_stack_started;
+    p->read_line             = read_line;
+    p->userdata              = userdata;
     siml_parser_reset(p);
 }
 
