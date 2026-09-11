@@ -403,19 +403,47 @@ A sequence item line is:
 
 * indentation (multiple of 2 spaces),
 * either:
-  - **header-only**: ``-`` and end of line (no trailing spaces), or
-  - **inline value**: ``-`` then single space then an inline value (section 6.4)
+  - **nested sequence**: ``-`` and end of line (no trailing spaces),
+  - **mapping item**: ``-`` then single space then the mapping's first entry, or
+  - **inline value**: ``-`` then single space then an inline value (section 6.4).
 
-Header-only sequence item line:
+Nested sequence item line:
 
 * MUST be exactly ``-`` and MUST end immediately (no spaces).
-* Introduces a nested node whose first content line MUST appear at
+* Introduces a nested block sequence whose first item line MUST appear at
   indentation ``(dash_indent + 2)``.
-* Inline comments MUST NOT appear on header-only sequence item lines.
+* MUST NOT introduce a mapping.
+* Inline comments MUST NOT appear on nested sequence item lines.
 
-A header-only item MUST be followed by at least one nested structural line at
+A nested sequence item MUST be followed by at least one sequence item line at
 the required indentation. Empty sequences are representable only as ``[]``
 (flow form); an empty block sequence MUST NOT be used.
+
+A mapping item MUST put its first mapping entry on the sequence item line:
+
+.. code-block:: text
+
+  - id: r_fullscreen
+    default: 1
+    flags: [CVAR_ARCHIVE,CVAR_TEMP]
+  - id: cl_sensitivity
+    default: 3.0
+    flags: []
+
+The first key is treated as being at indentation ``(dash_indent + 2)``.
+Subsequent mapping entries MUST appear at that indentation. The first entry
+otherwise follows all mapping-entry rules from section 6.2, including the
+header-only form.
+
+The following form MUST NOT be used for a mapping item:
+
+.. code-block:: text
+
+  -
+    id: r_fullscreen
+
+If the text after ``- `` starts with a syntactically valid key immediately
+followed by ``:``, the item is a mapping item, not a plain scalar.
 
 6.3.2 Flow sequences (single-line ``[...]`` only)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -477,6 +505,9 @@ An inline value appears only after:
 
 * ``key: `` (key, colon, single space), or
 * ``- `` (dash, single space)
+
+Text after ``- `` that starts with ``key:`` is the first entry of a mapping
+item as defined in section 6.3.1, not an inline value.
 
 An inline value is exactly one of:
 
@@ -637,9 +668,13 @@ Algorithm for each incoming non-block-scalar physical line:
    or document separator). If it is none of these, error ``unknown line form``.
 
 7. Process the structural line according to sections 4 / 6 / 7:
-   * Header-only mapping entry ``key:`` or header-only sequence item ``-`` sets
-     ``pending`` to ``C+2`` and (by introducing a nested node) causes the nested
-     node indentation to be checked on the next non-comment structural line.
+   * Header-only mapping entry ``key:`` sets ``pending`` to ``C+2`` and causes
+     the nested node indentation to be checked on the next non-comment
+     structural line.
+   * Nested sequence item ``-`` sets ``pending`` to ``C+2``. The next
+     non-comment structural line MUST be a sequence item.
+   * Mapping item ``- key: ...`` opens a mapping at ``C+2`` and processes
+     ``key: ...`` as its first entry on the same physical line.
    * When a nested node begins at indentation ``C+2``, that indentation level is
      pushed onto ``stack`` as part of opening the nested node.
    * Node termination is determined by subsequent dedent (step 4).
@@ -652,8 +687,10 @@ comments and structural lines.
 
 SIML nesting is defined purely by indentation, using an indentation stack.
 
-* A nested node introduced by ``key:`` or ``-`` MUST start at exactly
-  parent indentation + 2 spaces.
+* A nested node introduced by ``key:`` MUST start at exactly parent
+  indentation + 2 spaces.
+* A nested sequence introduced by ``-`` MUST start at exactly parent
+  indentation + 2 spaces.
 * When the next line has indentation less than the current node,
   the current node ends and parsing resumes at the matching parent level.
 * A document ends at:
@@ -672,7 +709,8 @@ restricted, a streaming parser only needs:
 
 * the current mode (mapping/sequence/block-scalar),
 * an indentation stack (small integer array),
-* one-line lookahead when completing header-only entries/items.
+* one-line lookahead when completing header-only mapping entries and nested
+  sequence items.
 
 
 9. Key syntax
@@ -747,6 +785,7 @@ Sequence items:
 * expected single space after '-'
 * header-only sequence item must not have inline comments
 * header-only sequence item must have a nested node
+* mapping sequence item must start after '- '
 
 Scalars:
 
@@ -827,8 +866,21 @@ SIML forbids (MUST NOT support):
    entry           ::= INDENT key ':' EOL comment* node_at_indent(INDENT+2)
                     |  INDENT key ':' ' ' inline_value inline_comment? EOL
 
-   item            ::= INDENT '-' EOL comment* node_at_indent(INDENT+2)
+   ; A bare dash may introduce only a nested block sequence. A mapping item starts
+   ; its first entry after '- '; that entry is treated as if it were at INDENT+2.
+   item            ::= INDENT '-' EOL comment* sequence_at_indent(INDENT+2)
+                    |  INDENT '- ' mapping_with_first_entry_at_indent(INDENT+2)
                     |  INDENT '-' ' ' inline_value inline_comment? EOL
+
+   ; The mapping form is selected when the text after '- ' starts with key ':'.
+   ; Its remaining entries use ordinary entry lines at INDENT+2.
+   mapping_with_first_entry_at_indent(I)
+                   ::= first_entry_body_at_indent(I)
+                       (comment* entry_at_indent(I))*
+
+   first_entry_body_at_indent(I)
+                   ::= key ':' EOL comment* node_at_indent(I+2)
+                    |  key ':' ' ' inline_value inline_comment? EOL
 
    inline_value    ::= '|'               ; literal block scalar
                     |  flow_seq
