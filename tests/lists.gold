@@ -8,7 +8,7 @@ item 0
   list3[] = ''
   description = '''
    list demo
-  '''
+'''
   empty = ''
   list4[] = 'with_hash'
   list4[] = 'value#notcomment'

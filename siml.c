@@ -70,7 +70,7 @@ dump_end_literal(void *user_data,
     (void) user_data;
     (void) key;
 
-    printf("  '''\n");
+    printf("'''\n");
 }
 
 int
