@@ -1,5 +1,0 @@
-item 0
-  id = 'list_cut_by_separator'
-  tags[] = 'alpha'
-  tags[] = '---'
-  tags[] = 'beta'

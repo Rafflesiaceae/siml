@@ -133,6 +133,7 @@ typedef struct siml_parser_s {
     /* Error state */
     siml_error_code   error_code;
     const char       *error_message;
+    char              error_buf[128];
     long              error_line;
 } siml_parser;
 
@@ -213,10 +214,41 @@ static int siml_is_doc_separator(const char *s, size_t len) {
 static void siml_set_error(siml_parser *p, siml_error_code code,
                            const char *msg) {
     if (p->error_code == SIML_ERR_NONE) {
+        size_t i = 0;
         p->error_code    = code;
-        p->error_message = msg;
         p->error_line    = p->line_no;
+        if (msg) {
+            while (msg[i] != '\0' && i + 1 < sizeof(p->error_buf)) {
+                p->error_buf[i] = msg[i];
+                ++i;
+            }
+        }
+        p->error_buf[i] = '\0';
+        p->error_message = p->error_buf;
     }
+}
+
+static void siml_set_error_with_key(siml_parser *p, siml_error_code code,
+                                    const char *prefix,
+                                    const char *key, size_t key_len) {
+    char buf[128];
+    size_t i = 0;
+    if (!prefix) prefix = "";
+    while (prefix[i] != '\0' && i + 1 < sizeof(buf)) {
+        buf[i] = prefix[i];
+        ++i;
+    }
+    if (key && key_len > 0) {
+        size_t k = 0;
+        while (k < key_len && i + 2 < sizeof(buf)) { /* keep room for closing quote */
+            buf[i++] = key[k++];
+        }
+        if (i + 1 < sizeof(buf)) {
+            buf[i++] = '\'';
+        }
+    }
+    buf[i] = '\0';
+    siml_set_error(p, code, buf);
 }
 
 static void siml_clear_event(siml_event *ev) {
@@ -264,7 +296,7 @@ static int siml_fetch_line(siml_parser *p) {
     }
     /* rc < 0: IO error */
     p->have_line = 0;
-    siml_set_error(p, SIML_ERR_IO, "SIML: read_line IO error");
+    siml_set_error(p, SIML_ERR_IO, "read_line IO error");
     return -1;
 }
 
@@ -477,13 +509,13 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
         size_t k;
 
         if (len == 0 || s[0] == ' ' || s[0] == '\t') {
-            siml_set_error(p, SIML_ERR_BAD_INDENT, "SIML: field must start at column 0");
+            siml_set_error(p, SIML_ERR_BAD_INDENT, "expected field at column 0 to start document");
             return SIML_EVENT_ERROR;
         }
 
         /* Parse key */
         if (!siml_is_alpha(s[0]) && s[0] != '_') {
-            siml_set_error(p, SIML_ERR_BAD_KEY, "SIML: invalid key start");
+            siml_set_error(p, SIML_ERR_BAD_KEY, "expected field at column 0 to start document");
             return SIML_EVENT_ERROR;
         }
         i = 1;
@@ -494,20 +526,12 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
         key_end = i;
 
         if (i >= len || s[i] != ':') {
-            siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "SIML: expected ':' after key");
+            siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "expected ':' after key");
             return SIML_EVENT_ERROR;
-        }
-        ++i; /* skip ':' */
-        if (i < len) {
-            if (s[i] != ' ') {
-                siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "SIML: expected space after 'key:'");
-                return SIML_EVENT_ERROR;
-            }
-            ++i; /* skip space after colon */
         }
 
         if (key_end - key_start > SIML_MAX_KEY_LEN) {
-            siml_set_error(p, SIML_ERR_BAD_KEY, "SIML: key too long");
+            siml_set_error(p, SIML_ERR_BAD_KEY, "key too long");
             return SIML_EVENT_ERROR;
         }
         for (k = 0; k < key_end - key_start; ++k) {
@@ -515,6 +539,17 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
         }
         p->key_buf[key_end - key_start] = '\0';
         p->key_len = key_end - key_start;
+
+        ++i; /* skip ':' */
+        if (i < len) {
+            if (s[i] != ' ') {
+                siml_set_error_with_key(p, SIML_ERR_BAD_FIELD_SYNTAX,
+                                        "expected space after ':' in field '",
+                                        p->key_buf, p->key_len);
+                return SIML_EVENT_ERROR;
+            }
+            ++i; /* skip space after colon */
+        }
 
         /* Raw value text */
         {
@@ -529,7 +564,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 }
                 if (j < vlen && v[j] != '#') {
                     siml_set_error(p, SIML_ERR_BAD_BLOCK_HEADER,
-                                   "SIML: unexpected characters after '|' block marker");
+                                   "unexpected characters after '|' block marker");
                     return SIML_EVENT_ERROR;
                 }
                 p->mode = SIML_MODE_BLOCK;
@@ -560,7 +595,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 slen = siml_scalar_strip(v, vlen);
                 if (slen == (size_t)(-1)) {
                     siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX,
-                                   "SIML: invalid scalar value");
+                                   "invalid scalar value");
                     return SIML_EVENT_ERROR;
                 }
                 p->have_line = 0; /* fully consumed */
@@ -605,14 +640,14 @@ static siml_event_type siml_next_list(siml_parser *p, siml_event *ev) {
                 /* Should not happen; the first line is the field header.
                  * If it does, treat as internal error.
                  */
-                siml_set_error(p, SIML_ERR_INTERNAL, "SIML: lost first list line");
+                siml_set_error(p, SIML_ERR_INTERNAL, "lost first list line");
                 return SIML_EVENT_ERROR;
             }
             rc = siml_fetch_list_line(p);
             if (rc < 0) return SIML_EVENT_ERROR;
             if (rc == 0) {
                 siml_set_error(p, SIML_ERR_UNTERMINATED_LIST,
-                               "SIML: unterminated list before EOF");
+                               "missing ']'");
                 return SIML_EVENT_ERROR;
             }
         }
@@ -626,7 +661,7 @@ static siml_event_type siml_next_list(siml_parser *p, siml_event *ev) {
             /* list_pos points to '[' from the header line */
             if (i >= len || s[i] != '[') {
                 siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
-                               "SIML: list header must start with '['");
+                               "list header must start with '['");
                 return SIML_EVENT_ERROR;
             }
             i++; /* skip '[' */
@@ -657,7 +692,7 @@ static siml_event_type siml_next_list(siml_parser *p, siml_event *ev) {
             }
             if (j < len && s[j] != '#') {
                 siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
-                               "SIML: unexpected characters after closing ']' in list");
+                               "unexpected characters after closing ']' in list");
                 return SIML_EVENT_ERROR;
             }
             /* Done with this line and list */
@@ -680,6 +715,12 @@ static siml_event_type siml_next_list(siml_parser *p, siml_event *ev) {
             continue;
         }
 
+        /* Document separator inside list is invalid. */
+        if (siml_is_doc_separator(s + i, (len >= i) ? (len - i) : 0)) {
+            siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX, "missing ']'");
+            return SIML_EVENT_ERROR;
+        }
+
         /* Parse list element: from i up to ',' or ']' */
         start = i;
         while (i < len && s[i] != ',' && s[i] != ']') {
@@ -694,8 +735,14 @@ static siml_event_type siml_next_list(siml_parser *p, siml_event *ev) {
         }
         if (end == start) {
             /* Empty element is not allowed */
-            siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
-                           "SIML: empty list element");
+            if (p->key_len > 0) {
+                siml_set_error_with_key(p, SIML_ERR_BAD_LIST_SYNTAX,
+                                        "empty list element in key '",
+                                        p->key_buf, p->key_len);
+            } else {
+                siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
+                               "empty list element");
+            }
             return SIML_EVENT_ERROR;
         }
 
@@ -774,7 +821,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
     /* Non-empty content line must start with exactly two spaces. */
     if (p->line_len < 2 || p->line[0] != ' ' || p->line[1] != ' ') {
         siml_set_error(p, SIML_ERR_BAD_BLOCK_CONTENT,
-                       "SIML: block line must start with exactly two spaces");
+                       "block line must start with exactly two spaces");
         return SIML_EVENT_ERROR;
     }
 
