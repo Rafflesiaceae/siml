@@ -47,7 +47,7 @@ fi
 if [ ! -f "${FUZZER}" ] \
    || [ "${ROOT_DIR}/fuzzer.c"       -nt "${FUZZER}" ] \
    || [ "${ROOT_DIR}/siml.h"        -nt "${FUZZER}" ]; then
-    echo "[fuzz] compiling siml-fuzzer..."
+    echo "[fuzz] compiling fuzzer..."
     clang -fsanitize=fuzzer,address -O1 -o "${FUZZER}" "${ROOT_DIR}/fuzzer.c"
 fi
 
