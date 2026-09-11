@@ -96,6 +96,7 @@ typedef enum siml_error_code {
     SIML_ERR_FLOW_UNTERMINATED,
     SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
     SIML_ERR_FLOW_EXCESS_TERM,
+    SIML_ERR_FLOW_INLINE_COMMENT,
     SIML_ERR_FLOW_WHITESPACE,
     SIML_ERR_FLOW_EMPTY_ELEM,
     SIML_ERR_FLOW_TRAILING_COMMA,
@@ -554,7 +555,6 @@ static int siml_fetch_line(siml_parser *p) {
 }
 
 static int siml_check_line_common(siml_parser *p) {
-    size_t i;
     const char *s = p->line;
     size_t len = p->line_len;
 
@@ -1090,7 +1090,7 @@ static int siml_prepare_flow_sequence(siml_parser *p,
         if (c == '[') {
             if (depth == 0 && i != value_start) {
                 siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess flow sequence termination");
+                               "excess non-comment characters after flow sequence termination");
                 return 0;
             }
             depth += 1;
@@ -1099,12 +1099,12 @@ static int siml_prepare_flow_sequence(siml_parser *p,
             depth -= 1;
             if (depth < 0) {
                 siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess flow sequence termination");
+                               "excess non-comment characters after flow sequence termination");
                 return 0;
             }
             if (depth == 0 && i != end_index) {
                 siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess flow sequence termination");
+                               "excess non-comment characters after flow sequence termination");
                 return 0;
             }
         }
@@ -1139,7 +1139,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
 
         if (depth < 0) {
             siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                           "excess flow sequence termination");
+                           "excess non-comment characters after flow sequence termination");
             return SIML_EVENT_ERROR;
         }
 
@@ -1204,7 +1204,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             if (p->flow_stack_pos[depth] < end) {
                 if (s[p->flow_stack_pos[depth]] != ',') {
                     siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                                   "excess flow sequence termination");
+                                   "excess non-comment characters after flow sequence termination");
                     return SIML_EVENT_ERROR;
                 }
                 p->flow_stack_pos[depth] += 1;
@@ -1230,6 +1230,12 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             continue;
         }
 
+        if (s[pos] == '#') {
+            siml_set_error(p, SIML_ERR_FLOW_INLINE_COMMENT,
+                           "inline comments not allowed inside flow sequence");
+            return SIML_EVENT_ERROR;
+        }
+
         {
             size_t i = pos;
             size_t item_len;
@@ -1244,7 +1250,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             }
             if (i < end && (s[i] == '[' || s[i] == ']')) {
                 siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess flow sequence termination");
+                               "excess non-comment characters after flow sequence termination");
                 return SIML_EVENT_ERROR;
             }
             item_len = i - pos;
@@ -1267,7 +1273,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             if (p->flow_stack_pos[depth] < end) {
                 if (s[p->flow_stack_pos[depth]] != ',') {
                     siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                                   "excess flow sequence termination");
+                                   "excess non-comment characters after flow sequence termination");
                     return SIML_EVENT_ERROR;
                 }
                 p->flow_stack_pos[depth] += 1;

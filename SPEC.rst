@@ -307,6 +307,8 @@ Notes:
 
 * In a plain scalar value, a ``#`` that is NOT preceded by whitespace is literal
   text, not a comment: ``mode: fast#1`` stores ``fast#1``.
+* Inside flow sequences, a scalar atom MUST NOT start with ``#``; ``[#foo]`` is
+  invalid even though the ``#`` is not preceded by whitespace.
 * For flow sequences, inline comments MAY appear only after the complete
   ``[...]``.
 
@@ -432,6 +434,8 @@ Rules:
     text).
   Any other trailing **non-space** characters after ``]`` MUST cause a parsing
   error.
+* Inline comments MUST NOT appear inside the flow sequence (i.e. before the
+  closing ``]``).
 * **No whitespace is allowed anywhere inside** the brackets.
 * Elements MUST be separated by commas.
 * Empty list MUST be exactly ``[]``.
@@ -446,6 +450,7 @@ Flow element constraints:
 * Scalar atom rules:
   - MUST be non-empty
   - MUST NOT contain ``,``, ``]``, or newline
+  - MUST NOT start with ``#``
   - MUST NOT start with ``|``
   - MUST be at most **128 bytes**
 
