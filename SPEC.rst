@@ -50,7 +50,7 @@ Example
 
 A SIML document is:
 
-* A sequence of *items* (records).
+* Either a single *item* (a flat mapping) or a sequence of items.
 * Each item is a flat mapping from string keys to values.
 * Value types:
 
@@ -71,11 +71,14 @@ No nested mappings, no lists of lists, no lists of mappings.
 3. Top-level structure
 ----------------------
 
-A SIML document is a sequence of items, separated by one or more blank
-and/or comment lines.
+A SIML document is either:
 
-3.1 Item start
-~~~~~~~~~~~~~~
+* A sequence of items (list form), separated by blank and/or comment lines,
+  or
+* A single item (object form) with fields at column 0.
+
+3.1 List form (``- `` items)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Each item begins with a line of the form::
 
@@ -88,9 +91,6 @@ Rules:
 * Then a key, a colon ``:``, one space, then the value text.
 * The key on the first line is just another field (often ``id``, but the
   format does not enforce this).
-
-3.2 Item fields
-~~~~~~~~~~~~~~~
 
 Following lines belonging to the same item must start with exactly
 two spaces::
@@ -113,6 +113,27 @@ Rules:
   - End of file.
 
 Blank lines and comment lines inside an item are allowed (see comments).
+
+3.2 Single-object form
+~~~~~~~~~~~~~~~~~~~~~~
+
+Instead of a list, a SIML file may contain a single item with fields that
+start at column 0::
+
+   key: value
+   otherKey: value
+   description: |
+     Literal block content...
+
+Rules:
+
+* The first non-comment/non-blank line must be ``key: value`` with no
+  leading ``-``.
+* All fields for the single object start at column 0 (no two-space indent).
+* Block lists under a key still use an indented ``-`` (e.g. ``␣␣- item``),
+  so they do not conflict with the top-level structure.
+* A ``- `` at column 0 after single-object parsing has started is an error
+  (mixing list and single-object forms is not allowed).
 
 4. Keys
 -------
@@ -302,13 +323,22 @@ This is an informal EBNF-style description of SIML:
 
 .. code-block:: text
 
-   document       ::= { blank_or_comment | item }
+   document       ::= single_object | item_sequence
+
+   item_sequence  ::= { blank_or_comment | item }
+
+   single_object  ::= field_body_line { blank_or_comment | object_field }
+   object_field   ::= field_body_line
+                    | "  - " block_list_element   ; block list item
 
    item           ::= item_first_field { blank_or_comment | item_field }
    item_first_field
                    ::= "- " field_body
    item_field     ::= "  " field_body
                     | "  - " block_list_element   ; block list item
+
+   field_body_line
+                   ::= field_body
 
    field_body     ::= key ":" " " field_value
 

@@ -7,5 +7,4 @@
     line1
     # this hash is not a comment
     line3
-
 # vim: set ft=yaml:

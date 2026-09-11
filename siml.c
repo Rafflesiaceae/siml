@@ -314,6 +314,8 @@ parse_file(FILE *fp, const char *filename)
     int block_pending_blank = 0;
     char block_list_key[SIML_MAX_KEY];
     int block_list_has_items = 0;
+    int singleton_mode = 0;
+    int mode_determined = 0;
 
     while (fgets(line, sizeof(line), fp)) {
         char *p;
@@ -325,6 +327,13 @@ parse_file(FILE *fp, const char *filename)
 
         if (state == ST_BLOCK_LITERAL) {
             if (line[0] == '-' && line[1] == ' ') {
+                if (singleton_mode) {
+                    fprintf(stderr,
+                            "%s:%ld: unexpected item start in single-object "
+                            "document\n",
+                            filename, line_no);
+                    return 1;
+                }
                 /* end block, handle this line as new item */
                 printf("  \"\"\"\n");
                 state = ST_ITEM;
@@ -368,16 +377,23 @@ parse_file(FILE *fp, const char *filename)
             char *bp = lskip_spaces(line);
             int indent = (int)(bp - line);
 
-            if (is_blank(bp) || is_comment(bp)) {
-                continue;
-            }
+        if (is_blank(bp) || is_comment(bp)) {
+            continue;
+        }
 
-            if (line[0] == '-' && line[1] == ' ') {
-                /* new item starts, close empty list if needed */
-                if (!block_list_has_items) {
-                    printf("  %s[] = (empty)\n", block_list_key);
-                }
-                state = ST_OUTSIDE;
+        if (line[0] == '-' && line[1] == ' ') {
+            if (singleton_mode) {
+                fprintf(stderr,
+                        "%s:%ld: unexpected item start in single-object "
+                        "document\n",
+                        filename, line_no);
+                return 1;
+            }
+            /* new item starts, close empty list if needed */
+            if (!block_list_has_items) {
+                printf("  %s[] = (empty)\n", block_list_key);
+            }
+            state = ST_OUTSIDE;
                 last_was_block = 0;
                 /* fall through to normal item handling below */
             } else if (indent >= 2 && bp[0] == '-' && bp[1] == ' ') {
@@ -449,6 +465,14 @@ parse_file(FILE *fp, const char *filename)
             int rc;
             char *body = line + 2;
 
+            if (singleton_mode) {
+                fprintf(stderr,
+                        "%s:%ld: unexpected item start in single-object "
+                        "document\n",
+                        filename, line_no);
+                return 1;
+            }
+            mode_determined = 1;
             item_index++;
             if (item_index > 0) {
                 printf("\n");
@@ -471,16 +495,63 @@ parse_file(FILE *fp, const char *filename)
         }
 
         if (state == ST_OUTSIDE) {
+            int rc;
+
+            if (!mode_determined) {
+                /* single-object form */
+                mode_determined = 1;
+                singleton_mode = 1;
+                item_index = 0;
+                printf("item %d\n", item_index);
+                state = ST_ITEM;
+                last_was_block = 0;
+                rc = parse_field(line, &state, &last_was_block,
+                                 block_list_key, sizeof(block_list_key),
+                                 &block_list_has_items,
+                                 filename, line_no);
+                if (rc != 0) {
+                    return rc;
+                }
+                if (state == ST_BLOCK_LITERAL) {
+                    block_pending_blank = 0;
+                }
+                continue;
+            }
+
             fprintf(stderr,
                     "%s:%ld: expected item start ('- key: value')\n",
                     filename, line_no);
             return 1;
         }
 
-        /* ST_ITEM: expect 2-space-indented fields */
-        if (line[0] == ' ' && line[1] == ' ') {
+        /* ST_ITEM: expect fields */
+        {
             int rc;
-            char *body = line + 2;
+            char *body = NULL;
+
+            if (singleton_mode) {
+                if (line[0] == ' ' && line[1] == ' ') {
+                    body = line + 2;
+                } else if (line[0] == ' ') {
+                    fprintf(stderr,
+                            "%s:%ld: expected field at column 0 or with "
+                            "two-space indent\n",
+                            filename, line_no);
+                    return 1;
+                } else {
+                    body = line;
+                }
+            } else {
+                if (line[0] == ' ' && line[1] == ' ') {
+                    body = line + 2;
+                } else {
+                    fprintf(stderr,
+                            "%s:%ld: expected 2-space-indented field or "
+                            "new item\n",
+                            filename, line_no);
+                    return 1;
+                }
+            }
 
             rc = parse_field(body, &state, &last_was_block,
                              block_list_key, sizeof(block_list_key),
@@ -494,11 +565,6 @@ parse_file(FILE *fp, const char *filename)
             }
             continue;
         }
-
-        fprintf(stderr,
-                "%s:%ld: expected 2-space-indented field or new item\n",
-                filename, line_no);
-        return 1;
     }
 
     if (state == ST_BLOCK_LITERAL) {
