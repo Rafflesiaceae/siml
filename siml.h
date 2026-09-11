@@ -65,6 +65,7 @@ typedef enum siml_error_code {
     SIML_ERR_WHITESPACE_ONLY,
     SIML_ERR_TABS,
     SIML_ERR_TRAILING_SPACES,
+    SIML_ERR_UNKNOWN_LINE_FORM,
     SIML_ERR_SEPARATOR_FORMAT,
     SIML_ERR_SEPARATOR_INDENT,
     SIML_ERR_SEPARATOR_INLINE_COMMENT,
@@ -973,10 +974,20 @@ static int siml_parse_mapping_entry(siml_parser *p,
                                     size_t *out_comment_len,
                                     int *out_has_inline_value) {
     size_t i;
+    int has_colon = 0;
 
     if (indent >= len) {
-        siml_set_error(p, SIML_ERR_KEY_ILLEGAL,
-                       "illegal mapping key, must match: [a-zA-Z_][a-zA-Z0-9_.-]*");
+        siml_set_error(p, SIML_ERR_UNKNOWN_LINE_FORM, "unknown line form");
+        return 0;
+    }
+    for (i = indent; i < len; ++i) {
+        if (s[i] == ':') {
+            has_colon = 1;
+            break;
+        }
+    }
+    if (!has_colon) {
+        siml_set_error(p, SIML_ERR_UNKNOWN_LINE_FORM, "unknown line form");
         return 0;
     }
     if (!siml_is_alpha(s[indent]) && s[indent] != '_') {
@@ -1725,8 +1736,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                               &has_inline_value)) {
                     return SIML_EVENT_ERROR;
                 }
-                if (has_trailing_spaces &&
-                    (!has_inline_value || s[value_start] != '[')) {
+                if (has_trailing_spaces) {
                     siml_set_error(p, SIML_ERR_TRAILING_SPACES,
                                    "trailing spaces are not allowed here");
                     return SIML_EVENT_ERROR;
@@ -1824,8 +1834,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                           &has_inline_value)) {
                 return SIML_EVENT_ERROR;
             }
-            if (has_trailing_spaces &&
-                (!has_inline_value || s[value_start] != '[')) {
+            if (has_trailing_spaces) {
                 siml_set_error(p, SIML_ERR_TRAILING_SPACES,
                                "trailing spaces are not allowed here");
                 return SIML_EVENT_ERROR;
