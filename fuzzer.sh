@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FUZZER="${ROOT_DIR}/fuzzer"
-CORPUS="${ROOT_DIR}/fuzz-corpus"
+CORPUS="${ROOT_DIR}/.cache/fuzzer"
 TESTCASES="${ROOT_DIR}/testcases"
 DEFAULT_TIME=60
 FOREVER=0

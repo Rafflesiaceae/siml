@@ -5,4 +5,5 @@ testcases/*.out
 testcases/*.err
 
 fuzzer
-fuzz-corpus/
+fuzzer-corpus/
+crash-*
