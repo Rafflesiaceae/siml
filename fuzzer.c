@@ -11,13 +11,13 @@
  *      libFuzzer saves the reproducer.
  *
  * Build and run:
- *   ./fuzz.sh                     # compile if needed, seed corpus, run 60 s
- *   ./fuzz.sh --forever           # run until Ctrl-C
- *   ./fuzz.sh -max_total_time=300 # override timeout directly
+ *   ./fuzzer.sh                     # compile if needed, seed corpus, run 60 s
+ *   ./fuzzer.sh --forever           # run until Ctrl-C
+ *   ./fuzzer.sh -- -max_total_time=300 # pass flags directly to libFuzzer
  *
  * Or manually:
- *   clang -fsanitize=fuzzer,address -O1 -o siml-fuzzer siml-fuzzer.c
- *   ./siml-fuzzer fuzz-corpus/ testcases/
+ *   clang -fsanitize=fuzzer,address -O1 -o fuzzer fuzzer.c
+ *   ./fuzzer fuzz-corpus/ testcases/
  *
  * Requires clang (libFuzzer is bundled — no extra packages needed).
  */

@@ -18,9 +18,9 @@ test(
 clang = find_program('clang', required: false)
 if clang.found()
   custom_target(
-    'siml-fuzzer',
-    input: 'siml-fuzzer.c',
-    output: 'siml-fuzzer',
+    'fuzzer',
+    input: 'fuzzer.c',
+    output: 'fuzzer',
     command: [clang, '-fsanitize=fuzzer,address', '-O1', '-o', '@OUTPUT@', '@INPUT@'],
     build_by_default: false,
   )

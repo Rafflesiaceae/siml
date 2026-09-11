@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FUZZER="${ROOT_DIR}/siml-fuzzer"
+FUZZER="${ROOT_DIR}/fuzzer"
 CORPUS="${ROOT_DIR}/fuzz-corpus"
 TESTCASES="${ROOT_DIR}/testcases"
 DEFAULT_TIME=60
@@ -45,10 +45,10 @@ if ! command -v clang &>/dev/null; then
 fi
 
 if [ ! -f "${FUZZER}" ] \
-   || [ "${ROOT_DIR}/siml-fuzzer.c" -nt "${FUZZER}" ] \
+   || [ "${ROOT_DIR}/fuzzer.c"       -nt "${FUZZER}" ] \
    || [ "${ROOT_DIR}/siml.h"        -nt "${FUZZER}" ]; then
     echo "[fuzz] compiling siml-fuzzer..."
-    clang -fsanitize=fuzzer,address -O1 -o "${FUZZER}" "${ROOT_DIR}/siml-fuzzer.c"
+    clang -fsanitize=fuzzer,address -O1 -o "${FUZZER}" "${ROOT_DIR}/fuzzer.c"
 fi
 
 mkdir -p "${CORPUS}"
