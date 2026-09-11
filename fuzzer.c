@@ -157,7 +157,6 @@ static int build_flow_sequence(siml_parser *parser, struct buffer *b,
 static int run_roundtrip(const uint8_t *data, size_t size) {
     struct fuzz_reader reader;
     siml_parser        parser;
-    siml_scratch       scratch;
     siml_event         ev;
     struct buffer      out;
     size_t             stack_indent[SIML_MAX_NESTING];
@@ -180,7 +179,7 @@ static int run_roundtrip(const uint8_t *data, size_t size) {
     parsed_ok   = 0;
     ok          = 1;
 
-    siml_parser_init(&parser, &scratch, fuzz_read_line, &reader);
+    siml_parser_init(&parser, fuzz_read_line, &reader);
 
     for (;;) {
         siml_event_type t = siml_next(&parser, &ev);
@@ -318,6 +317,15 @@ static int run_roundtrip(const uint8_t *data, size_t size) {
             break;
 
         case SIML_EVENT_BLOCK_SCALAR_END:
+            break;
+
+        case SIML_EVENT_MAPPING_ENTRY_HEADER:
+            ok = emit_prefix(&out, cur_indent,
+                             ev.key.ptr, ev.key.len,
+                             in_sequence, 0, inline_prefixes) &&
+                 buf_append_char(&out, '\n');
+            if (ok && inline_prefixes > 0)
+                stack_inline_prefixes[depth - 1] = 0;
             break;
 
         default:
