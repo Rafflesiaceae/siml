@@ -1,0 +1,23 @@
+item 0
+  id = 'single_line_lists'
+  hash_in_list[] = 'va#lue'
+  hash_in_list[] = 'mid#tag'
+  trim_spaces_list[] = 'spaced item'
+  trim_spaces_list[] = 'trailing'
+  pipe_like_list[] = '|pipeish'
+  pipe_like_list[] = '[nested-ish'
+
+item 1
+  id = 'multi_line_lists'
+  gapped_list[] = 'alpha'
+  gapped_list[] = 'beta'
+  gapped_list[] = 'gamma'
+  commented_list[] = 'foo'
+  commented_list[] = 'bar'
+  commented_list[] = 'baz # inline comment kept'
+  trailing_comma_list[] = 'last_one'
+
+item 2
+  id = 'scalar_fields'
+  comment_trimmed = 'value before comment'
+  hash_literal = 'value#hash'

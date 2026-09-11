@@ -1,0 +1,6 @@
+id: empty_list_multiline
+tags: [
+  alpha,
+  ,
+  beta,
+]

@@ -64,7 +64,8 @@ No nested mappings, no lists of lists, no lists of mappings.
 
 * Text encoding: UTF-8, no BOM.
 * Line endings: ``\n`` or ``\r\n`` (treated the same).
-* Indentation is strict and exactly two spaces (no variable size, no Tabs)
+* Indentation is strict and exactly two spaces. There is no variable-width
+  indentation and no tab characters may be used for indentation.
 
 3. Top-level structure
 ----------------------
@@ -95,31 +96,63 @@ No nested mappings, no lists of lists, no lists of mappings.
 Everything after ``key: `` on a line is the raw value text, before stripping
 trailing whitespace and optional inline comments.
 
-SIML itself treats all scalar values as strings; interpretation as integer,
-float, enum, etc. is up to the application. Lists are sequences of strings.
+SIML itself treats all simple values as strings; interpretation as integer,
+float, enum, etc. is up to the consumer. Lists are sequences of such strings.
+
+Simple scalar text
+~~~~~~~~~~~~~~~~~~
+
+SIML uses the same notion of *simple scalar* for:
+
+* scalar field values (section 5.1), and
+* individual list elements (section 5.2).
+
+A simple scalar is:
+
+* A non-empty sequence of characters that does **not** contain:
+
+  - a newline,
+  - a comma (``","``), or
+  - a closing bracket (``"]"``).
+
+* For scalar fields (``key: value``), the simple scalar must also **not**
+  start with ``"["`` or ``"|"``, because those leading characters select
+  list and literal block syntax instead (see below).
+
+* The character ``"#"`` is allowed inside simple scalars. Whether a particular
+  ``"#"`` starts a comment depends only on the line-level rules in section 6
+  (inline comments), not on the value itself.
 
 5.1 Scalar values
 ~~~~~~~~~~~~~~~~~
 
-A scalar value is any non-empty text not starting with ``[`` or ``|``::
+A scalar value is a simple scalar taken from a field line that does not begin
+with ``"["`` or ``"|"`` after ``key: ``::
 
    default: 1
    min: 0.0
    max: 10.0
    mode: normal
+   note: va#lue
 
-The parser returns the scalar as a string.
+The parser determines the scalar text as:
+
+* everything after ``key: `` up to the end of the line, then
+* stripping trailing spaces and any inline comment according to section 6.
+
+The resulting text must be a valid simple scalar.
 
 5.2 List values
 ~~~~~~~~~~~~~~~
 
-Lists are sequences of bare words written with brackets.
+Lists are sequences of simple scalar values written with brackets.
 
 Inline examples::
 
    flags: [CVAR_ARCHIVE, CVAR_TEMP]
    tags: [foo, bar, baz,]
    empty: []
+   weird: [va#lue, foo bar]
 
 Multi-line bracketed form::
 
@@ -130,12 +163,24 @@ Multi-line bracketed form::
 
 Rules:
 
-* The value must start with ``[`` and end with the matching ``]``. The closing
-  bracket may appear on the same line or a later line of the same item.
-* Inside, zero or more list items separated by commas; a trailing comma before
-  ``]`` is allowed.
-* Each list item is optional leading/trailing spaces followed by a non-empty
-  sequence of characters that are not a comma or closing bracket.
+* The value must start with ``"["`` and end with the matching ``"]"``.
+  The closing bracket may appear on the same line or a later line of
+  the same item.
+
+* Inside, there are zero or more **list elements**, separated by commas.
+  A trailing comma before ``"]"`` is allowed.
+
+* Each list element is a simple scalar (same character set as scalar values
+  in section 5.1):
+
+  - Leading and trailing spaces around the element are ignored.
+  - The element text runs up to the next comma or closing ``"]"``.
+  - The resulting text must not contain ``","`` or ``"]"`` and must not
+    be empty.
+
+* In multi-line lists, blank lines and full-line comments (lines whose first
+  non-space character is ``#``) may appear between elements and are ignored
+  (see section 6).
 
 5.3 Literal block values (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -167,7 +212,7 @@ Rules:
    string.
 
 5. The resulting block value is all content lines joined with ``\n``. A parser
-   must keep trailing newline at the end of the block.
+   must keep the trailing newline at the end of the block.
 
 6. Comments and blank lines
 ---------------------------
@@ -221,10 +266,8 @@ This is an informal EBNF-style description of SIML:
 
 .. code-block:: text
 
-   document_stream  ::= [ document_separator ]
-                        item
+   document_stream  ::= item
                         { document_separator item }
-                        [ document_separator ]
 
    document_separator ::= "---" SPACES? [ "#" TEXT ]?
 
@@ -240,15 +283,21 @@ This is an informal EBNF-style description of SIML:
 
    list_value       ::= "[" [ list_item { "," list_item } ] [ "," ] "]"
 
-   list_item        ::= SPACES? bare_word SPACES?
+   list_item        ::= SPACES? simple_scalar SPACES?
 
-   scalar_value     ::= NONEMPTY_TEXT   ; up to end-of-line, before inline comment/#
+   scalar_value     ::= simple_scalar   ; after stripping trailing spaces/comment
 
    key              ::= ALPHA [ ALNUM | "_" ]*
 
-   bare_word        ::= 1*(non-space, non-comma, non-"]", non-# chars)
+   simple_scalar    ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET)
 
    blank_or_comment ::= BLANK_LINE | COMMENT_LINE
+
+``CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET`` means any character except newline,
+comma (","), or closing bracket ("]"). Whether a ``"#"`` starts a comment is
+governed by section 6 (inline comments), not by this production. For scalar
+fields, the first character of the value after ``key: `` must not be "[" or "|",
+otherwise the field is parsed as a list or literal block instead.
 
 Block content after ``block_marker`` is defined by the rules in section 5.3.
 
@@ -262,7 +311,7 @@ Major restrictions:
 * No arbitrary nesting:
 
   - Only: top-level sequence of flat mappings.
-  - Values are only: scalar, list of bare words written with brackets,
+  - Values are only: scalar, list of simple scalars written with brackets,
     or literal block.
   - No mappings inside lists, no lists of lists, no nested mappings.
 
@@ -283,7 +332,7 @@ Major restrictions:
   - Items are separated by ``---``; fields are at column 0.
   - Keys are unquoted identifiers.
   - Lists use bracket syntax ``[a, b, c]`` (single-line or multi-line) and
-    elements are always bare words.
+    elements are always unquoted simple scalars.
   - Literal blocks are always ``|`` and can appear anywhere within an item.
 
 Implementation intent
@@ -298,4 +347,4 @@ portable ANSI C as:
 * Without requiring a general tokenizer or parser generator.
 
 This makes SIML suitable as a configuration source in small C codebases
-that want YAML-like readability with trivial parsing complexity. 0000000000000000000000000000000000000000
+that want YAML-like readability with trivial parsing complexity.
