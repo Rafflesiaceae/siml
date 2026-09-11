@@ -1,6 +1,6 @@
-==================================
-SIML (Simple Item Markup Language)
-==================================
+=======================================
+SIML (Simple Item Markup Language) v0.1
+=======================================
 
 SIML is a strict, line-oriented subset of YAML 1.2 designed so that a streaming
 reference parser can be written in short, clean ANSI C and that it can be
@@ -216,10 +216,6 @@ ALLOWED::
 5.2 Inline comments (alignment-preserving)
 ------------------------------------------
 
-Inline comments MAY appear only on **structural lines that already contain an
-inline value** (plain scalar, flow sequence, or block scalar marker). They MUST
-NOT appear on “header-only” lines (``key:`` or ``-``).
-
 An inline comment starts at the first ``#`` on the line that is:
 
 * preceded by **at least one space**, and
@@ -233,6 +229,7 @@ Inline comment formatting is:
 
 Examples::
 
+  coolobj: # an important object
   default: 1 # integer as string
   flags: [A,B]      # aligned with other fields
   description: |  # block follows
@@ -586,10 +583,10 @@ file.
 13. Reference Implementation
 ============================
 
-It thus should be easily possible to write a header-only, pure ANSI C89
-implementation of the SIML specification.
-
-With:
- - No dynamic allocation.
- - No I/O. The caller provides a line-reading callback.
- - Pull parser API: the caller repeatedly calls siml_next() to obtain events.
+* Header only.
+* Pure ANSI C89.
+* No dynamic allocation.
+* No I/O. The caller provides a line-reading callback.
+* Pull parser API: the caller repeatedly calls siml_next() to obtain events.
+* Events are Variants (Tagged Unions) that can be easily stored by consumers and
+  replayed to generate the exact same siml byte-by-byte.
