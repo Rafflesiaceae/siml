@@ -189,7 +189,11 @@ typedef struct siml_event_s {
     const char      *error_message;         /* static string; never NULL for ERROR */
 } siml_event;
 
-/* Internal types: mode, container, and flow-stack frame */
+/*
+ * Internal implementation types — consumers must not use these directly.
+ * They appear here only because siml_parser embeds them by value, which
+ * requires their definitions to be visible at the point of allocation.
+ */
 typedef enum siml_mode_e {
     SIML_MODE_NORMAL = 0,
     SIML_MODE_FLOW,
