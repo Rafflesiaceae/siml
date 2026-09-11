@@ -804,48 +804,24 @@ void siml_parser_init(siml_parser *p,
 }
 
 void siml_parser_reset(siml_parser *p) {
+    siml_read_line_fn rl;
+    void            *ud;
+    char            *pk, *mk, *eb;
+    siml_container  *st;
+    siml_flow_frame *fs;
+
     if (!p) return;
-    p->line      = 0;
-    p->line_len  = 0;
-    p->line_no   = 0;
-    p->have_line = 0;
-    p->at_eof    = 0;
-    p->line_cr_code = SIML_ERR_NONE;
-    p->started   = 0;
-    p->in_document = 0;
-    p->seen_document = 0;
-    p->awaiting_document = 0;
-    p->mode      = SIML_MODE_NORMAL;
-    p->depth     = 0;
-    p->pending_map = 0;
-    p->pending_indent = 0;
-    p->pending_key_len = 0;
-    p->inline_sequence_item = 0;
-    p->inline_sequence_indent = 0;
-    p->pending_close = 0;
-    p->target_depth = 0;
-    p->pending_doc_end = 0;
-    p->pending_doc_start = 0;
-    p->pending_container_start = 0;
-    p->pending_container_key_len = 0;
-    p->pending_stream_end = 0;
-    p->flow_depth = 0;
-    p->flow_inline_spaces = 0;
-    p->flow_inline_comment = 0;
-    p->flow_inline_comment_len = 0;
-    p->block_indent = 0;
-    p->mode_key_len = 0;
-    p->block_inline_spaces = 0;
-    p->block_inline_comment = 0;
-    p->block_inline_comment_len = 0;
-    p->block_start_line = 0;
-    p->block_seen_content = 0;
-    p->block_blank_count = 0;
-    p->block_blank_start_line = 0;
-    p->block_emit_blanks = 0;
-    p->error_code = SIML_ERR_NONE;
-    p->error_message = 0;
-    p->error_line = 0;
+    rl = p->read_line;    ud = p->userdata;
+    pk = p->pending_key;  mk = p->mode_key;
+    eb = p->error_buf;
+    st = p->stack;        fs = p->flow_stack;
+
+    memset(p, 0, sizeof(*p));
+
+    p->read_line  = rl;  p->userdata = ud;
+    p->pending_key = pk; p->mode_key = mk;
+    p->error_buf   = eb;
+    p->stack       = st; p->flow_stack = fs;
 }
 
 /* Forward declarations of internal state handlers */
