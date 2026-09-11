@@ -437,6 +437,15 @@ This limit applies equally to:
 * the complete single-line ``[...]`` representation of a flow sequence (before
   any inline comment).
 
+6.5 Node kind consistency at a given indentation
+------------------------------------------------
+
+Within a node at indentation level ``I`` every non-comment structural line must
+be of the same kind, e.g. a **mapping** node MUST only contain **mapping entry
+lines** etc.
+
+(Comments MAY appear between structural lines and do not affect this rule.)
+
 
 7. Scalars
 ==========
@@ -521,15 +530,15 @@ SIML nesting is defined purely by indentation, using an indentation stack.
 
 * A nested node introduced by ``key:`` or ``-`` MUST start at exactly
   parent indentation + 2 spaces.
-* When the next non-comment line has indentation less than the current container,
-  the current container ends and parsing resumes at the matching parent level.
+* When the next non-comment line has indentation less than the current node,
+  the current node ends and parsing resumes at the matching parent level.
 * A document ends at:
   - a document separator ``---`` at indentation 0, or
   - EOF.
 
 Maximum nesting depth:
 
-* The maximum nesting depth (number of simultaneously-open containers)
+* The maximum nesting depth (number of simultaneously-open nodes)
   MUST be at most **32**.
 * Inputs that would require a deeper indentation stack MUST cause a parsing
   error.
@@ -558,22 +567,86 @@ Keys:
 * appear only in mapping entry lines,
 * MUST start immediately after the indentation (no leading extra spaces),
 
+
 10. Error Messages
 ==================
 
 Implementations MUST have the following **separate** error messages:
 
+Line endings and physical line length:
+
+* UTF-8 BOM is forbidden
+* CRLF is forbidden (``\r\n`` found)
+* CR is forbidden (``\r`` found)
+* physical line too long (max 4608 bytes)
+
+Whitespace rules:
+
+* blank lines are not allowed here
+* whitespace-only lines are not allowed here
+* tabs are not allowed here
+* trailing spaces are not allowed here
+
+Document stream:
+
+* document separator must be exactly ``---``
+* document separator must be at indent 0
+* document separator must not have inline comments
+* document separator must not appear before the first document
+* document separator must not appear after the last document
+* document must start at indent 0
+* document root must not be a scalar
+
+Indentation and nesting:
+
+* indentation must be a multiple of 2 spaces
+* wrong indentation, expected: X
+* nested node indentation mismatch, expected X got Y
+* node kind mixing at indent X is forbidden
+
+Keys and mapping entries:
+
+* illegal mapping key, must match: [a-zA-Z_][a-zA-Z0-9_.-]*
+* mapping key too long (max 128 bytes)
+* expected single space after ':'
+* header-only mapping entry must not have inline comments
+* header-only mapping entry must have a nested node
+
+Sequence items:
+
+* expected single space after '-'
+* header-only sequence item must not have inline comments
+* header-only sequence item must have a nested node
+
+Comments:
+
+* empty comment is forbidden
+* comment indentation must match current nesting level
+* comment text too long (max 512 bytes)
+* inline comment alignment out of range (1..255 spaces)
+* inline comment must have exactly 1 space after '#'
+* inline comment text too long (max 256 bytes)
+
+Inline values and flow sequences:
+
+* inline value is empty
+* inline value too long (max 2048 bytes)
 * multi-line flow sequences are forbidden
 * unterminated flow sequence
-* blank lines are not allowed here
+* flow sequence contains whitespace (forbidden)
 * empty flow sequence element
-* document must start at indent 0
-* wrong indentation, expected: X
-* illegal mapping key, must match: [a-zA-Z_][a-zA-Z0-9_.-]*
-* expected single space after ':'
-* nested node indentation mismatch, expected X got Y
-* inline comment must have exactly 1 space after '#'
+* trailing comma in flow sequence is forbidden
+* flow sequence atom too long (max 128 bytes)
+
+Literal block scalars:
+
 * block literal must not be empty
+* block literal content line has wrong indentation
+* block literal has leading blank line (forbidden)
+* block literal has trailing blank line (forbidden)
+* block literal content line too long (max 4096 bytes)
+* whitespace-only lines are forbidden in block literal content
+
 
 11. Disallowed YAML features (non-goals)
 ========================================
@@ -603,10 +676,10 @@ SIML forbids (MUST NOT support):
    ; Per section 4.1, '---' MUST NOT have inline comments.
    separator      ::= '---' EOL
 
-   document       ::= container_at_indent(0)
+   document       ::= non_scalar_node_at_indent(0)
 
-   container      ::= mapping | sequence
-   node           ::= mapping | sequence | scalar
+   non_scalar_node ::= mapping | sequence
+   node            ::= mapping | sequence | scalar
 
    mapping        ::= entry (comment* entry)*
    entry          ::= INDENT key ':' EOL node_at_indent(INDENT+2)
