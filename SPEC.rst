@@ -257,6 +257,13 @@ Let ``A`` be the set of indentation levels currently open on the indentation sta
   satisfy the requirement that the header-only form be followed by a nested
   structural line (see 6.2 and 6.3).
 
+  In the pull-parser event stream, the key from the header-only line is
+  emitted immediately as a ``MAPPING_ENTRY_HEADER`` event. Leading-trivia
+  ``COMMENT`` events follow in file order. The subsequent ``MAPPING_START``
+  or ``SEQUENCE_START`` event carries an empty key (the key was already
+  delivered on ``MAPPING_ENTRY_HEADER``). This ordering matches the physical
+  file and requires no buffering by consumers.
+
 * Otherwise, a comment line indentation **MUST** be one of the open levels:
   ``indent ∈ A``.
 
@@ -975,6 +982,21 @@ file.
   responsible for stripping the line feed and detecting forbidden byte
   sequences (CRLF, bare CR, missing final line feed).
 * Pull parser API: the caller repeatedly calls the parse function to obtain events.
+* Event types emitted (in document order):
+
+  - ``DOCUMENT_START`` / ``DOCUMENT_END`` — document boundaries.
+  - ``MAPPING_ENTRY_HEADER`` — emitted immediately when a header-only
+    ``key:\n`` line is parsed. Carries the mapping key. The subsequent
+    ``MAPPING_START`` or ``SEQUENCE_START`` event carries an empty key.
+    ``COMMENT`` events for leading trivia appear between these two events,
+    in file order, with no consumer-side buffering required.
+  - ``MAPPING_START`` / ``MAPPING_END`` — mapping container open/close.
+    Key is empty when preceded by ``MAPPING_ENTRY_HEADER``.
+  - ``SEQUENCE_START`` / ``SEQUENCE_END`` — sequence container open/close.
+    Key is empty when preceded by ``MAPPING_ENTRY_HEADER``.
+  - ``SCALAR`` — a scalar value with its key (if inside a mapping).
+  - ``COMMENT`` — a comment line, including its indentation and text.
+
 * All variable-sized buffers are held in a caller-supplied scratch buffer.
   Both the parser object and the scratch buffer may be stack- or
   statically-allocated and must outlive the parse session.
