@@ -12,7 +12,6 @@ on Windows without WSL).
 """
 
 import argparse
-import os
 import platform
 import shutil
 import subprocess
@@ -24,15 +23,7 @@ DEFAULT_JOBS = 16
 
 
 def find_root() -> Path:
-    if 'MESON_SOURCE_ROOT' in os.environ:
-        return Path(os.environ['MESON_SOURCE_ROOT'])
     return Path(__file__).parent.resolve()
-
-
-def find_build(root: Path) -> Path:
-    if 'MESON_BUILD_ROOT' in os.environ:
-        return Path(os.environ['MESON_BUILD_ROOT'])
-    return root / 'build'
 
 
 def parse_args():
@@ -80,14 +71,11 @@ def main() -> int:
     args = parse_args()
 
     root  = find_root()
-    build = find_build(root)
     corpus    = root / '.cache' / 'fuzzer'
     testcases = root / 'testcases'
     src       = root / 'fuzzer.c'
     hdr       = root / 'siml.h'
-    # Put the compiled harness in the build directory when running under
-    # meson; fall back to the source root for standalone invocation.
-    fuzzer_bin = (build if 'MESON_BUILD_ROOT' in os.environ else root) / 'fuzzer'
+    fuzzer_bin = root / 'fuzzer'
 
     clang = shutil.which('clang')
     if clang is None:
