@@ -5,86 +5,14 @@
 #define SIML_IMPLEMENTATION
 #include "siml.h"
 
-static void
-dump_begin_item(void *user_data, int index)
-{
-    (void) user_data;
-
-    if (index > 0) {
-        printf("\n");
-    }
-    printf("item %d\n", index);
-}
-
-static void
-dump_scalar(void *user_data,
-            const char *key,
-            const char *value)
-{
-    (void) user_data;
-
-    printf("  %s = '%s'\n", key, value);
-}
-
-static void
-dump_list_element(void *user_data,
-                  const char *key,
-                  const char *element)
-{
-    (void) user_data;
-
-    printf("  %s[] = '%s'\n", key, element);
-}
-
-static void
-dump_list_empty(void *user_data,
-                const char *key)
-{
-    (void) user_data;
-
-    printf("  %s[] = ''\n", key);
-}
-
-static void
-dump_begin_literal(void *user_data,
-                   const char *key)
-{
-    (void) user_data;
-
-    printf("  %s = '''\n", key);
-}
-
-static void
-dump_literal_line(void *user_data,
-                  const char *line)
-{
-    (void) user_data;
-
-    printf("%s\n", line);
-}
-
-static void
-dump_end_literal(void *user_data,
-                 const char *key)
-{
-    (void) user_data;
-    (void) key;
-
-    printf("'''\n");
-}
-
 int
 main(int argc, char **argv)
 {
     const char *filename;
     FILE *fp;
-    struct siml_callbacks cb;
-    int debug_enabled = 0;
+    struct siml_iter it;
+    struct siml_event ev;
     int rc;
-
-    if (getenv("DEBUG") != NULL) {
-        debug_enabled = 1;
-    }
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <file.siml>\n", argv[0]);
@@ -103,16 +31,66 @@ main(int argc, char **argv)
         }
     }
 
-    cb.begin_item = dump_begin_item;
-    cb.scalar = dump_scalar;
-    cb.list_element = dump_list_element;
-    cb.list_empty = dump_list_empty;
-    cb.begin_literal = dump_begin_literal;
-    cb.literal_line = dump_literal_line;
-    cb.end_literal = dump_end_literal;
+    if (siml_iter_init(&it, fp, filename) != 0) {
+        fprintf(stderr, "Failed to initialize parser\n");
+        rc = 1;
+        goto done;
+    }
 
-    rc = siml_parse_file(fp, filename, &cb, NULL, debug_enabled);
+    memset(&ev, 0, sizeof(ev));
+    rc = 0;
+    while (1) {
+        if (siml_next(&it, &ev) != 0) {
+            fprintf(stderr, "Failed to read next event\n");
+            rc = 1;
+            break;
+        }
+        if (ev.type == SIML_EVENT_EOF) {
+            siml_event_cleanup(&ev);
+            break;
+        }
+        if (ev.type == SIML_EVENT_ERROR) {
+            fprintf(stderr, "%s\n",
+                    ev.message ? ev.message : "parse error");
+            siml_event_cleanup(&ev);
+            rc = 1;
+            break;
+        }
 
+        switch (ev.type) {
+        case SIML_EVENT_BEGIN_ITEM:
+            if (ev.item_index > 0) {
+                printf("\n");
+            }
+            printf("item %d\n", ev.item_index);
+            break;
+        case SIML_EVENT_SCALAR:
+            printf("  %s = '%s'\n", ev.key, ev.value);
+            break;
+        case SIML_EVENT_LIST_ELEMENT:
+            printf("  %s[] = '%s'\n", ev.key, ev.value);
+            break;
+        case SIML_EVENT_LIST_EMPTY:
+            printf("  %s[] = ''\n", ev.key);
+            break;
+        case SIML_EVENT_BEGIN_LITERAL:
+            printf("  %s = '''\n", ev.key);
+            break;
+        case SIML_EVENT_LITERAL_LINE:
+            printf("%s\n", ev.value ? ev.value : "");
+            break;
+        case SIML_EVENT_END_LITERAL:
+            printf("'''\n");
+            break;
+        default:
+            break;
+        }
+        siml_event_cleanup(&ev);
+    }
+
+    siml_iter_destroy(&it);
+
+done:
     if (fp != stdin) {
         fclose(fp);
     }
