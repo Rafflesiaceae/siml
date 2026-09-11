@@ -3,5 +3,11 @@ project('siml', 'c',
   default_options: ['c_std=c89', 'warning_level=2']
 )
 
-executable('siml-dump', 'siml-dump.c')
-executable('siml-roundtrip', 'siml-roundtrip.c')
+parser = static_library('siml-parser', 'siml.c')
+parser_dep = declare_dependency(
+  link_with: parser,
+  include_directories: include_directories('.'),
+)
+
+executable('siml-dump', 'siml-dump.c', dependencies: parser_dep)
+executable('siml-roundtrip', 'siml-roundtrip.c', dependencies: parser_dep)

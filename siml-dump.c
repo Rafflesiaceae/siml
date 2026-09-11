@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SIML_IMPLEMENTATION
 #include "siml.h"
 
 struct file_reader {

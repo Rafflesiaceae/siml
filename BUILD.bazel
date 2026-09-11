@@ -1,0 +1,21 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "parser",
+    srcs = ["siml.c"],
+    hdrs = ["siml.h"],
+    visibility = ["//visibility:public"],
+)
+
+cc_binary(
+    name = "siml-dump",
+    srcs = ["siml-dump.c"],
+    deps = [":parser"],
+)
+
+cc_binary(
+    name = "siml-roundtrip",
+    srcs = ["siml-roundtrip.c"],
+    deps = [":parser"],
+)
