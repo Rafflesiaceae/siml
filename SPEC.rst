@@ -879,5 +879,3 @@ file.
 * No dynamic allocation.
 * No I/O. The caller provides a line-reading callback.
 * Pull parser API: the caller repeatedly calls siml_next() to obtain events.
-* Events are Variants (Tagged Unions) that can be easily stored by consumers and
-  replayed to generate the exact same siml byte-by-byte.

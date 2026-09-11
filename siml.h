@@ -1394,14 +1394,6 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
                 return ev->type;
             }
 
-            for (i = 0; i < p->block_indent + 2; ++i) {
-                if (s[i] != ' ') {
-                    siml_set_error(p, SIML_ERR_BLOCK_WRONG_INDENT,
-                                   "block literal content line has wrong indentation");
-                    return SIML_EVENT_ERROR;
-                }
-            }
-
             if (len - (p->block_indent + 2) > SIML_MAX_BLOCK_LINE_LEN) {
                 siml_set_error(p, SIML_ERR_BLOCK_LINE_TOO_LONG,
                                "block literal content line too long (max 4096 bytes)");
@@ -1495,16 +1487,17 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
         if (!siml_check_line_nonblock(p)) return SIML_EVENT_ERROR;
 
         {
-            size_t indent = 0;
-            int comment_rc;
+            const char *s = p->line;
             size_t trimmed_len = p->line_len;
             int has_trailing_spaces = 0;
-            while (trimmed_len > 0 && p->line[trimmed_len - 1] == ' ') {
+            size_t indent = 0;
+            int comment_rc;
+            while (trimmed_len > 0 && s[trimmed_len - 1] == ' ') {
                 trimmed_len -= 1;
             }
             has_trailing_spaces = (trimmed_len != p->line_len);
 
-            comment_rc = siml_parse_comment_line(p, p->line, trimmed_len, &indent);
+            comment_rc = siml_parse_comment_line(p, s, trimmed_len, &indent);
             if (comment_rc < 0) return SIML_EVENT_ERROR;
             if (comment_rc > 0) {
                 if (has_trailing_spaces) {
@@ -1537,19 +1530,9 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 p->have_line = 0;
                 return ev->type;
             }
-        }
 
-        {
-            const char *s = p->line;
-            size_t trimmed_len = p->line_len;
-            int has_trailing_spaces = 0;
-            while (trimmed_len > 0 && s[trimmed_len - 1] == ' ') {
-                trimmed_len -= 1;
-            }
-            has_trailing_spaces = (trimmed_len != p->line_len);
             {
             size_t len = trimmed_len;
-            size_t indent = 0;
             size_t key_len = 0;
             size_t value_start = 0;
             size_t value_len = 0;
