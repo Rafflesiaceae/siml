@@ -113,7 +113,7 @@ typedef enum siml_error_code {
     SIML_ERR_BLOCK_TRAILING_BLANK,
     SIML_ERR_BLOCK_LINE_TOO_LONG,
     SIML_ERR_BLOCK_WHITESPACE_ONLY,
-    SIML_ERR_SEQ_MAP_REQUIRES_INLINE
+    SIML_ERR_SEQ_ITEM_REQUIRES_INLINE
 } siml_error_code;
 
 /* Event types for the pull parser */
@@ -201,8 +201,7 @@ typedef struct siml_container_s {
 
 typedef enum siml_pending_kind_e {
     SIML_PENDING_NONE = 0,
-    SIML_PENDING_MAP,
-    SIML_PENDING_SEQ
+    SIML_PENDING_MAP
 } siml_pending_kind;
 
 /* Parser state */
@@ -241,9 +240,9 @@ typedef struct siml_parser_s {
     char              pending_key[SIML_MAX_KEY_LEN + 1];
     size_t            pending_key_len;
 
-    /* Mapping entry introduced on a sequence item line */
-    int               inline_mapping_entry;
-    size_t            inline_mapping_indent;
+    /* Nested item introduced on the current sequence item line */
+    int               inline_sequence_item;
+    size_t            inline_sequence_indent;
 
     /* Pending end/start events */
     int               pending_close;
@@ -905,8 +904,8 @@ void siml_parser_reset(siml_parser *p) {
     p->pending_indent = 0;
     p->pending_key[0] = '\0';
     p->pending_key_len = 0;
-    p->inline_mapping_entry = 0;
-    p->inline_mapping_indent = 0;
+    p->inline_sequence_item = 0;
+    p->inline_sequence_indent = 0;
     p->pending_close = 0;
     p->target_depth = 0;
     p->pending_doc_end = 0;
@@ -1094,8 +1093,9 @@ static int siml_parse_sequence_item(siml_parser *p,
         return 0;
     }
     if (dash + 1 == len) {
-        *out_has_inline_value = 0;
-        return 1;
+        siml_set_error(p, SIML_ERR_SEQ_ITEM_REQUIRES_INLINE,
+                       "sequence item must start after '- '");
+        return 0;
     }
     if (s[dash + 1] != ' ' || (dash + 2 < len && s[dash + 2] == ' ')) {
         siml_set_error(p, SIML_ERR_EXPECT_SPACE_AFTER_DASH,
@@ -1131,6 +1131,15 @@ static int siml_starts_mapping_entry(const char *s,
         ++i;
     }
     return i < end && s[i] == ':';
+}
+
+static int siml_starts_sequence_item(const char *s,
+                                     size_t start,
+                                     size_t value_len) {
+    if (value_len == 0 || s[start] != '-') {
+        return 0;
+    }
+    return value_len == 1 || s[start + 1] == ' ';
 }
 
 static int siml_prepare_flow_sequence(siml_parser *p,
@@ -1617,11 +1626,6 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                    "header-only mapping entry must have a nested node");
                     return SIML_EVENT_ERROR;
                 }
-                if (p->pending_kind == SIML_PENDING_SEQ) {
-                    siml_set_error(p, SIML_ERR_HEADER_SEQ_NO_NESTED,
-                                   "header-only sequence item must have a nested node");
-                    return SIML_EVENT_ERROR;
-                }
                 if (p->awaiting_document) {
                     siml_set_error(p, SIML_ERR_SEPARATOR_AFTER_DOC,
                                    "document separator must not appear after the last document");
@@ -1703,9 +1707,9 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             int is_sequence = 0;
             siml_container *cur = 0;
 
-            if (p->inline_mapping_entry) {
-                indent = p->inline_mapping_indent;
-                p->inline_mapping_entry = 0;
+            if (p->inline_sequence_item) {
+                indent = p->inline_sequence_indent;
+                p->inline_sequence_item = 0;
             } else {
                 if (!siml_count_indent(p, s, len, &indent)) {
                     return SIML_EVENT_ERROR;
@@ -1722,11 +1726,6 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     if (p->pending_kind == SIML_PENDING_MAP) {
                         siml_set_error(p, SIML_ERR_HEADER_MAP_NO_NESTED,
                                        "header-only mapping entry must have a nested node");
-                        return SIML_EVENT_ERROR;
-                    }
-                    if (p->pending_kind == SIML_PENDING_SEQ) {
-                        siml_set_error(p, SIML_ERR_HEADER_SEQ_NO_NESTED,
-                                       "header-only sequence item must have a nested node");
                         return SIML_EVENT_ERROR;
                     }
                     if (!p->in_document) {
@@ -1806,12 +1805,6 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 if (!p->in_document) {
                     siml_set_error(p, SIML_ERR_DOC_SCALAR,
                                    "document root must not be a scalar");
-                    return SIML_EVENT_ERROR;
-                }
-                if (p->pending_kind == SIML_PENDING_SEQ && is_mapping) {
-                    siml_set_error(
-                        p, SIML_ERR_SEQ_MAP_REQUIRES_INLINE,
-                        "mapping sequence item must start after '- '");
                     return SIML_EVENT_ERROR;
                 }
                 if (is_mapping) {
@@ -1950,18 +1943,20 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                                   indent + 2, "", 0)) {
                     return SIML_EVENT_ERROR;
                 }
-                p->inline_mapping_entry = 1;
-                p->inline_mapping_indent = indent + 2;
+                p->inline_sequence_item = 1;
+                p->inline_sequence_indent = indent + 2;
                 return siml_emit_pending_start(p, ev);
             }
 
-            if (!has_inline_value) {
-                p->pending_kind = SIML_PENDING_SEQ;
-                p->pending_indent = indent + 2;
-                p->pending_key[0] = '\0';
-                p->pending_key_len = 0;
-                p->have_line = 0;
-                continue;
+            if (siml_starts_sequence_item(s, value_start, value_len)) {
+                if (!siml_request_container_start(p, SIML_CONTAINER_SEQ,
+                                                  SIML_SEQ_STYLE_BLOCK,
+                                                  indent + 2, "", 0)) {
+                    return SIML_EVENT_ERROR;
+                }
+                p->inline_sequence_item = 1;
+                p->inline_sequence_indent = indent + 2;
+                return siml_emit_pending_start(p, ev);
             }
 
             return siml_handle_inline_value(
