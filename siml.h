@@ -212,9 +212,7 @@ typedef struct siml_container_s {
  */
 typedef struct siml_scratch_s {
     char              pending_key[SIML_MAX_KEY_LEN + 1];
-    char              pending_container_key[SIML_MAX_KEY_LEN + 1];
-    char              flow_key[SIML_MAX_KEY_LEN + 1];
-    char              block_key[SIML_MAX_KEY_LEN + 1];
+    char              mode_key[SIML_MAX_KEY_LEN + 1]; /* flow or block key */
     char              error_buf[SIML_ERROR_BUF_SIZE];
     siml_container    stack[SIML_MAX_NESTING];
     size_t            flow_stack_start[SIML_MAX_NESTING];
@@ -268,7 +266,6 @@ typedef struct siml_parser_s {
     int               pending_container_start;
     siml_container_type pending_container_type;
     siml_seq_style    pending_seq_style;
-    char             *pending_container_key;
     size_t            pending_container_key_len;
     int               pending_stream_end;
 
@@ -278,16 +275,15 @@ typedef struct siml_parser_s {
     size_t           *flow_stack_end;
     size_t           *flow_stack_pos;
     int              *flow_stack_started;
-    char             *flow_key;
-    size_t            flow_key_len;
     unsigned int      flow_inline_spaces;
     const char       *flow_inline_comment;
     size_t            flow_inline_comment_len;
 
     /* Block scalar parsing state */
     size_t            block_indent;
-    char             *block_key;
-    size_t            block_key_len;
+    /* mode_key/mode_key_len: key for whichever mode (flow or block) is active */
+    char             *mode_key;
+    size_t            mode_key_len;
     unsigned int      block_inline_spaces;
     const char       *block_inline_comment;
     size_t            block_inline_comment_len;
@@ -723,17 +719,18 @@ static int siml_request_container_start(siml_parser *p,
                                         size_t indent,
                                         const char *key,
                                         size_t key_len) {
-    size_t i;
-
     if (!siml_push_container(p, type, indent)) return 0;
     p->pending_container_start = 1;
     p->pending_container_type = type;
     p->pending_seq_style = seq_style;
     p->pending_container_key_len = key_len;
-    for (i = 0; i < key_len && i < SIML_MAX_KEY_LEN; ++i) {
-        p->pending_container_key[i] = key[i];
+    /* key is either p->pending_key (already there) or "" (len == 0) */
+    if (key_len > 0 && key != p->pending_key) {
+        size_t i;
+        for (i = 0; i < key_len && i < SIML_MAX_KEY_LEN; ++i)
+            p->pending_key[i] = key[i];
+        p->pending_key[key_len] = '\0';
     }
-    p->pending_container_key[key_len] = '\0';
     return 1;
 }
 
@@ -780,7 +777,7 @@ static siml_event_type siml_emit_pending_start(siml_parser *p, siml_event *ev) {
             ev->type = SIML_EVENT_SEQUENCE_START;
             ev->seq_style = p->pending_seq_style;
         }
-        ev->key = siml_make_slice(p->pending_container_key,
+        ev->key = siml_make_slice(p->pending_key,
                                   p->pending_container_key_len);
         ev->line = p->line_no;
         return ev->type;
@@ -795,11 +792,9 @@ void siml_parser_init(siml_parser *p,
                       siml_read_line_fn read_line,
                       void *userdata) {
     if (!p || !scratch) return;
-    p->pending_key           = scratch->pending_key;
-    p->pending_container_key = scratch->pending_container_key;
-    p->flow_key              = scratch->flow_key;
-    p->block_key             = scratch->block_key;
-    p->error_buf             = scratch->error_buf;
+    p->pending_key = scratch->pending_key;
+    p->mode_key    = scratch->mode_key;
+    p->error_buf   = scratch->error_buf;
     p->stack                 = scratch->stack;
     p->flow_stack_start      = scratch->flow_stack_start;
     p->flow_stack_end        = scratch->flow_stack_end;
@@ -837,12 +832,11 @@ void siml_parser_reset(siml_parser *p) {
     p->pending_container_key_len = 0;
     p->pending_stream_end = 0;
     p->flow_depth = 0;
-    p->flow_key_len = 0;
     p->flow_inline_spaces = 0;
     p->flow_inline_comment = 0;
     p->flow_inline_comment_len = 0;
     p->block_indent = 0;
-    p->block_key_len = 0;
+    p->mode_key_len = 0;
     p->block_inline_spaces = 0;
     p->block_inline_comment = 0;
     p->block_inline_comment_len = 0;
@@ -1130,10 +1124,10 @@ static siml_event_type siml_start_block(siml_parser *p, siml_event *ev,
     p->mode = SIML_MODE_BLOCK;
     p->block_indent = indent;
     if (key_len > 0) {
-        memcpy(p->block_key, key, key_len);
+        memcpy(p->mode_key, key, key_len);
     }
-    p->block_key[key_len] = '\0';
-    p->block_key_len = key_len;
+    p->mode_key[key_len] = '\0';
+    p->mode_key_len = key_len;
     p->block_inline_spaces = ic_spaces;
     p->block_inline_comment = ic_ptr;
     p->block_inline_comment_len = ic_len;
@@ -1146,7 +1140,7 @@ static siml_event_type siml_start_block(siml_parser *p, siml_event *ev,
 
     ev->type = SIML_EVENT_BLOCK_SCALAR_START;
     if (key_len > 0) {
-        ev->key = siml_make_slice(p->block_key, p->block_key_len);
+        ev->key = siml_make_slice(p->mode_key, p->mode_key_len);
     }
     ev->inline_comment_spaces = p->block_inline_spaces;
     ev->inline_comment = siml_make_slice(p->block_inline_comment,
@@ -1165,10 +1159,10 @@ static siml_event_type siml_start_flow(siml_parser *p, siml_event *ev,
     }
     p->mode = SIML_MODE_FLOW;
     if (key_len > 0) {
-        memcpy(p->flow_key, key, key_len);
+        memcpy(p->mode_key, key, key_len);
     }
-    p->flow_key[key_len] = '\0';
-    p->flow_key_len = key_len;
+    p->mode_key[key_len] = '\0';
+    p->mode_key_len = key_len;
     p->flow_inline_spaces = ic_spaces;
     p->flow_inline_comment = ic_ptr;
     p->flow_inline_comment_len = ic_len;
@@ -1247,7 +1241,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             ev->type = SIML_EVENT_SEQUENCE_START;
             ev->seq_style = SIML_SEQ_STYLE_FLOW;
             if (depth == 0) {
-                ev->key = siml_make_slice(p->flow_key, p->flow_key_len);
+                ev->key = siml_make_slice(p->mode_key, p->mode_key_len);
                 ev->inline_comment_spaces = p->flow_inline_spaces;
                 ev->inline_comment = siml_make_slice(p->flow_inline_comment,
                                                      p->flow_inline_comment_len);
@@ -1390,7 +1384,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
     for (;;) {
         if (p->block_emit_blanks && p->block_blank_count > 0) {
             ev->type = SIML_EVENT_BLOCK_SCALAR_LINE;
-            ev->key = siml_make_slice(p->block_key, p->block_key_len);
+            ev->key = siml_make_slice(p->mode_key, p->mode_key_len);
             ev->value = siml_make_slice("", 0);
             ev->line = p->block_blank_start_line;
             p->block_blank_start_line += 1;
@@ -1417,7 +1411,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
                 }
                 p->mode = SIML_MODE_NORMAL;
                 ev->type = SIML_EVENT_BLOCK_SCALAR_END;
-                ev->key = siml_make_slice(p->block_key, p->block_key_len);
+                ev->key = siml_make_slice(p->mode_key, p->mode_key_len);
                 ev->line = p->block_start_line;
                 return ev->type;
             }
@@ -1474,7 +1468,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
                 }
                 p->mode = SIML_MODE_NORMAL;
                 ev->type = SIML_EVENT_BLOCK_SCALAR_END;
-                ev->key = siml_make_slice(p->block_key, p->block_key_len);
+                ev->key = siml_make_slice(p->mode_key, p->mode_key_len);
                 ev->line = p->block_start_line;
                 return ev->type;
             }
@@ -1491,7 +1485,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
             }
 
             ev->type = SIML_EVENT_BLOCK_SCALAR_LINE;
-            ev->key = siml_make_slice(p->block_key, p->block_key_len);
+            ev->key = siml_make_slice(p->mode_key, p->mode_key_len);
             ev->value = siml_make_slice(s + p->block_indent + 2,
                                         len - (p->block_indent + 2));
             ev->line = p->line_no;
@@ -1723,7 +1717,6 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     }
                 }
                 p->pending_map = 0;
-                p->pending_key[0] = '\0';
                 p->pending_key_len = 0;
                 return siml_emit_pending_start(p, ev);
             }
