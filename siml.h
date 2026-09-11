@@ -207,11 +207,6 @@ typedef struct siml_container_s {
     int                 item_count;
 } siml_container;
 
-typedef enum siml_pending_kind_e {
-    SIML_PENDING_NONE = 0,
-    SIML_PENDING_MAP
-} siml_pending_kind;
-
 /* Caller-supplied scratch buffer holding all variable-sized arrays. Allocate
  * however suits the target (stack, static, heap). Must outlive the parser.
  */
@@ -256,7 +251,7 @@ typedef struct siml_parser_s {
     int               depth;
 
     /* Pending header-only value */
-    siml_pending_kind pending_kind;
+    int               pending_map;
     size_t            pending_indent;
     char             *pending_key;
     size_t            pending_key_len;
@@ -846,7 +841,7 @@ void siml_parser_reset(siml_parser *p) {
     p->awaiting_document = 0;
     p->mode      = SIML_MODE_NORMAL;
     p->depth     = 0;
-    p->pending_kind = SIML_PENDING_NONE;
+    p->pending_map = 0;
     p->pending_indent = 0;
     p->pending_key_len = 0;
     p->inline_sequence_item = 0;
@@ -1527,7 +1522,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
 static int siml_comment_indent_allowed(siml_parser *p, size_t indent) {
     int i;
 
-    if (p->pending_kind != SIML_PENDING_NONE) {
+    if (p->pending_map) {
         return indent == p->pending_indent;
     }
 
@@ -1559,7 +1554,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             rc = siml_fetch_line(p);
             if (rc < 0) return SIML_EVENT_ERROR;
             if (rc == 0) {
-                if (p->pending_kind == SIML_PENDING_MAP) {
+                if (p->pending_map) {
                     siml_set_error(p, SIML_ERR_HEADER_MAP_NO_NESTED,
                                    "header-only mapping entry must have a nested node");
                     return SIML_EVENT_ERROR;
@@ -1611,7 +1606,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                    "comment indentation must match current nesting level");
                     return SIML_EVENT_ERROR;
                 }
-                if (p->pending_kind == SIML_PENDING_NONE && p->depth > 0 &&
+                if (!p->pending_map && p->depth > 0 &&
                     indent < p->stack[p->depth - 1].indent) {
                     int target = siml_find_indent_target(p, indent);
                     if (target < 0) {
@@ -1661,7 +1656,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     return SIML_EVENT_ERROR;
                 }
                 if (len == 3) {
-                    if (p->pending_kind == SIML_PENDING_MAP) {
+                    if (p->pending_map) {
                         siml_set_error(p, SIML_ERR_HEADER_MAP_NO_NESTED,
                                        "header-only mapping entry must have a nested node");
                         return SIML_EVENT_ERROR;
@@ -1731,7 +1726,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 is_mapping = 1;
             }
 
-            if (p->pending_kind != SIML_PENDING_NONE) {
+            if (p->pending_map) {
                 if (indent != p->pending_indent) {
                     siml_set_error_two(p, SIML_ERR_INDENT_NEST_MISMATCH,
                                        "nested node indentation mismatch, expected ",
@@ -1760,7 +1755,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                         return SIML_EVENT_ERROR;
                     }
                 }
-                p->pending_kind = SIML_PENDING_NONE;
+                p->pending_map = 0;
                 p->pending_key[0] = '\0';
                 p->pending_key_len = 0;
                 return siml_emit_pending_start(p, ev);
@@ -1845,7 +1840,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 cur->item_count += 1;
 
                 if (!has_inline_value) {
-                    p->pending_kind = SIML_PENDING_MAP;
+                    p->pending_map = 1;
                     p->pending_indent = indent + 2;
                     memcpy(p->pending_key, s + indent, key_len);
                     p->pending_key[key_len] = '\0';
