@@ -545,10 +545,6 @@ siml_is_field_line(struct siml_iter *p,
         return 0;
     }
 
-    if (colon[1] != '\0' && colon[1] != ' ') {
-        return 0;
-    }
-
     if (body_offset) {
         *body_offset = indent;
     }
