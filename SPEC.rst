@@ -238,6 +238,10 @@ Block form rules:
 
 * Blank lines and full-line comments between list items are allowed and
   ignored; they do not create empty elements.
+* If no list item lines (``- item``) appear before the next field/new item/
+  EOF, the original ``key:`` line is treated as a scalar with value ``""``.
+  To write an empty list, use the inline form ``key: []`` or provide at least
+  one list item line.
 * Inline and block lists are equivalent at the data-model level; both
   represent the same “list of scalars” value type.
 * No quoting or escaping is allowed inside list elements; each element

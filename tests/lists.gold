@@ -9,7 +9,7 @@ item 0
   description = """
    list demo
   """
-  empty[] = (empty)
+  empty = 
   list4[] = with_hash
   list4[] = value#notcomment
 

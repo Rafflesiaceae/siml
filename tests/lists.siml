@@ -16,7 +16,7 @@
   flags: # preferred flags
     - fast
     - stable # avoid churn
-  labels:
+  labels: []
   notes: block list demo after empty labels
 
 # vim: set ft=yaml:

@@ -63,6 +63,7 @@ struct siml_parser {
     int block_pending_blank;
     char block_list_key[SIML_MAX_KEY];
     int block_list_has_items;
+    int block_list_pending_scalar;
     int singleton_mode;
     int mode_determined;
     char literal_key[SIML_MAX_KEY];
@@ -365,6 +366,7 @@ siml_parse_field(struct siml_parser *p,
             }
             strcpy(p->block_list_key, key);
             p->block_list_has_items = 0;
+            p->block_list_pending_scalar = 1;
             p->state = ST_BLOCK_LIST;
             siml_debugf(p->debug_enabled,
                         "[dbg] %s:%ld: key '%s' starts block list\n",
@@ -510,6 +512,7 @@ siml_parse_file(FILE *fp,
     parser.block_pending_blank = 0;
     parser.block_list_key[0] = '\0';
     parser.block_list_has_items = 0;
+    parser.block_list_pending_scalar = 0;
     parser.singleton_mode = 0;
     parser.mode_determined = 0;
     parser.literal_key[0] = '\0';
@@ -608,9 +611,16 @@ siml_parse_file(FILE *fp,
                 }
                 /* new item starts, close empty list if needed */
                 if (!parser.block_list_has_items) {
-                    siml_emit_list_empty(&parser,
-                                         parser.block_list_key);
+                    if (parser.block_list_pending_scalar) {
+                        siml_emit_scalar(&parser,
+                                         parser.block_list_key,
+                                         "");
+                    } else {
+                        siml_emit_list_empty(&parser,
+                                             parser.block_list_key);
+                    }
                 }
+                parser.block_list_pending_scalar = 0;
                 parser.state = ST_OUTSIDE;
                 /* fall through to normal item handling below */
             } else if (indent >= 2 &&
@@ -646,15 +656,33 @@ siml_parse_file(FILE *fp,
                                        parser.block_list_key,
                                        elem);
                 parser.block_list_has_items = 1;
+                parser.block_list_pending_scalar = 0;
                 continue;
             } else if (indent == 2) {
                 int rc;
                 char *body = line + 2;
 
                 if (!parser.block_list_has_items) {
+                    if (parser.block_list_pending_scalar) {
+                        siml_emit_scalar(&parser,
+                                         parser.block_list_key,
+                                         "");
+                        parser.block_list_pending_scalar = 0;
+                        parser.state = ST_ITEM;
+                        rc = siml_parse_field(&parser, body,
+                                              filename, line_no);
+                        if (rc != 0) {
+                            return rc;
+                        }
+                        if (parser.state == ST_BLOCK_LITERAL) {
+                            parser.block_pending_blank = 0;
+                        }
+                        continue;
+                    }
                     siml_emit_list_empty(&parser,
                                          parser.block_list_key);
                 }
+                parser.block_list_pending_scalar = 0;
                 parser.state = ST_ITEM;
                 rc = siml_parse_field(&parser, body,
                                       filename, line_no);
@@ -782,7 +810,14 @@ siml_parse_file(FILE *fp,
     }
     if (parser.state == ST_BLOCK_LIST &&
         !parser.block_list_has_items) {
-        siml_emit_list_empty(&parser, parser.block_list_key);
+        if (parser.block_list_pending_scalar) {
+            siml_emit_scalar(&parser,
+                             parser.block_list_key,
+                             "");
+        } else {
+            siml_emit_list_empty(&parser,
+                                 parser.block_list_key);
+        }
     }
 
     return 0;
