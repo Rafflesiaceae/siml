@@ -360,20 +360,27 @@ static int siml_is_space_or_tab_only(const char *s, size_t len) {
     return 1;
 }
 
+/* Returns 1 and initialises the error state; returns 0 if already errored. */
+static int siml_err_begin(siml_parser *p, siml_error_code code) {
+    if (p->error_code != SIML_ERR_NONE) return 0;
+    p->error_code = code;
+    p->error_line = p->line_no;
+    return 1;
+}
+
+/* Appends string s to buf[0..cap-1] starting at pos; returns new pos. */
+static size_t siml_err_append(char *buf, size_t pos, size_t cap, const char *s) {
+    while (s && *s != '\0' && pos + 1 < cap)
+        buf[pos++] = *s++;
+    return pos;
+}
+
 static void siml_set_error(siml_parser *p, siml_error_code code, const char *msg) {
-    if (p->error_code == SIML_ERR_NONE) {
-        size_t i = 0;
-        p->error_code = code;
-        p->error_line = p->line_no;
-        if (msg) {
-            while (msg[i] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
-                p->error_buf[i] = msg[i];
-                ++i;
-            }
-        }
-        p->error_buf[i] = '\0';
-        p->error_message = p->error_buf;
-    }
+    size_t i;
+    if (!siml_err_begin(p, code)) return;
+    i = siml_err_append(p->error_buf, 0, SIML_ERROR_BUF_SIZE, msg);
+    p->error_buf[i] = '\0';
+    p->error_message = p->error_buf;
 }
 
 static size_t siml_append_ulong(char *buf, size_t pos, size_t cap,
@@ -397,23 +404,11 @@ static size_t siml_append_ulong(char *buf, size_t pos, size_t cap,
 static void siml_set_error_one(siml_parser *p, siml_error_code code,
                                const char *prefix, unsigned long value,
                                const char *suffix) {
-    size_t i = 0;
-    if (p->error_code != SIML_ERR_NONE) return;
-    p->error_code = code;
-    p->error_line = p->line_no;
-    if (prefix) {
-        while (prefix[i] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
-            p->error_buf[i] = prefix[i];
-            ++i;
-        }
-    }
+    size_t i;
+    if (!siml_err_begin(p, code)) return;
+    i = siml_err_append(p->error_buf, 0, SIML_ERROR_BUF_SIZE, prefix);
     i = siml_append_ulong(p->error_buf, i, SIML_ERROR_BUF_SIZE, value);
-    if (suffix) {
-        size_t j = 0;
-        while (suffix[j] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
-            p->error_buf[i++] = suffix[j++];
-        }
-    }
+    i = siml_err_append(p->error_buf, i, SIML_ERROR_BUF_SIZE, suffix);
     p->error_buf[i] = '\0';
     p->error_message = p->error_buf;
 }
@@ -421,23 +416,11 @@ static void siml_set_error_one(siml_parser *p, siml_error_code code,
 static void siml_set_error_two(siml_parser *p, siml_error_code code,
                                const char *prefix, unsigned long a,
                                const char *middle, unsigned long b) {
-    size_t i = 0;
-    if (p->error_code != SIML_ERR_NONE) return;
-    p->error_code = code;
-    p->error_line = p->line_no;
-    if (prefix) {
-        while (prefix[i] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
-            p->error_buf[i] = prefix[i];
-            ++i;
-        }
-    }
+    size_t i;
+    if (!siml_err_begin(p, code)) return;
+    i = siml_err_append(p->error_buf, 0, SIML_ERROR_BUF_SIZE, prefix);
     i = siml_append_ulong(p->error_buf, i, SIML_ERROR_BUF_SIZE, a);
-    if (middle) {
-        size_t j = 0;
-        while (middle[j] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
-            p->error_buf[i++] = middle[j++];
-        }
-    }
+    i = siml_err_append(p->error_buf, i, SIML_ERROR_BUF_SIZE, middle);
     i = siml_append_ulong(p->error_buf, i, SIML_ERROR_BUF_SIZE, b);
     p->error_buf[i] = '\0';
     p->error_message = p->error_buf;
