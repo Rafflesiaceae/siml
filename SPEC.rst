@@ -45,11 +45,19 @@ Example
 A SIML file is a **document stream**: one or more documents separated by
 ``---`` lines.
 
-Each document is a single YAML node of one of these kinds:
+Each document MUST be exactly one node of one of these kinds:
 
 * **Mapping**: ordered list of (key → value) entries
 * **Sequence**: ordered list of values
-* **Scalar**: string
+
+Documents MUST NOT be scalars.
+
+Documents MUST be non-empty:
+
+* A document mapping MUST have at least one entry.
+* A document block sequence MUST have at least one item.
+
+(Scalars are still allowed as values inside mappings and sequences; see 7.)
 
 SIML has **no implicit typing**. All scalars are strings; interpretation as
 int/float/enum is up to the consumer.
@@ -82,14 +90,15 @@ A conforming round-tripping parser MUST preserve:
 * for each node: whether it was written as:
   - plain scalar vs literal block scalar
   - block sequence vs flow sequence
-* all **trivia lines** (blank lines and comment lines), **exactly** as they
-  appeared, including indentation and spacing.
+* all **comment lines**, **exactly** as they appeared, including indentation and
+  spacing.
 * for each **inline comment**, the exact number of spaces that preceded the
-  comment ``#`` on that line (see 5.3).
+  comment ``#`` on that line (see 5.2).
 
 Because SIML mandates **canonical structural formatting**, a serializer never
-has to “choose formatting”: it only replays stored trivia and prints structure
-in the only allowed way. Therefore parse→serialize is byte-for-byte identical.
+has to “choose formatting”: it only replays stored comment lines and prints
+structure in the only allowed way. Therefore parse→serialize is byte-for-byte
+identical.
 
 
 3. Encoding, line endings, whitespace
@@ -129,10 +138,20 @@ For perfect round-trip:
 SIML uses indentation only for **block mappings**, **block sequences**, and
 **literal block scalar content**.
 
-3.4 Trailing spaces
+3.4 Forbidden whitespace-only and blank lines
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Outside literal block scalar content (section 7.2), SIML forbids:
+
+* **Blank lines** (an empty line: zero characters before the LF).
+* **Lines containing only spaces or tabs**.
+
+Any such line MUST cause a parsing error.
+
+3.5 Trailing spaces
 ~~~~~~~~~~~~~~~~~~~
 
-Outside literal block scalar content (section 7), SIML forbids trailing spaces.
+Outside literal block scalar content (section 7.2), SIML forbids trailing spaces.
 
 * Every non-block-content line MUST end immediately at the last non-space
   character (followed by the LF).
@@ -166,36 +185,56 @@ Separators:
 * MUST NOT appear inside literal block scalar content
 * A trailing ``---`` after the last document is NOT allowed.
 
-4.2 Leading trivia
-~~~~~~~~~~~~~~~~~~
+4.2 Leading and inter-document trivia
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Blank lines and comment lines may appear:
+Only comment lines (section 5) may appear:
 
 * before the first document,
 * between documents (before or after ``---``),
 * inside documents between nodes (subject to indentation rules).
 
+Blank lines and whitespace-only lines are forbidden outside block scalar content.
 
-5. Trivia lines (blank lines and comments)
-------------------------------------------
 
-Trivia is recognized only **outside** literal block scalar content.
+5. Comment lines and inline comments
+------------------------------------
 
-5.1 Blank lines
-~~~~~~~~~~~~~~~
+Comments are recognized only **outside** literal block scalar content.
 
-A blank line is an empty line (zero characters before the LF).
+Empty comments are forbidden (both comment lines and inline comments).
 
-5.2 Comment lines
+5.1 Comment lines
 ~~~~~~~~~~~~~~~~~
 
-A comment line is any line whose first non-space character is ``#``.
+A comment line is a line of the form:
 
-* Comment lines may be indented (using only spaces).
+* indentation (zero or more spaces; MUST be a multiple of 2),
+* ``#``,
+* **exactly one space**,
+* **one or more** characters of comment text (up to end of line).
+
+Rules:
+
+* Comment line indentation MUST be a multiple of 2 spaces (0, 2, 4, …).
+* Tabs are forbidden everywhere (including comment indentation).
 * Comment lines are trivia; they do not affect structure.
 * Comment lines are preserved verbatim for round-trip.
 
-5.3 Inline comments (alignment-preserving)
+FORBIDDEN (empty comment)::
+
+  #
+
+FORBIDDEN (empty comment text)::
+
+  #␠
+
+ALLOWED::
+
+  # heading comment
+    # indented comment
+
+5.2 Inline comments (alignment-preserving)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Inline comments are allowed only on **structural lines that already contain an
@@ -211,7 +250,7 @@ Inline comment formatting is:
 
 * **N spaces** immediately before ``#`` (``N >= 1``), and
 * **exactly one space** immediately after ``#``, then
-* zero or more characters of comment text (up to end of line).
+* **one or more** characters of comment text (up to end of line).
 
 Examples::
 
@@ -239,7 +278,9 @@ Notes:
 6. Node forms and structure
 ---------------------------
 
-A document is a single node. SIML supports three node kinds:
+A document is a single node, but documents MUST NOT be scalars (section 1).
+
+SIML supports three node kinds:
 
 * mapping
 * sequence
@@ -252,18 +293,18 @@ A node is introduced either:
 * as a sequence item.
 
 The node kind is determined by its introducing line and (for header-only forms)
-the next non-trivia line.
+the next non-comment line.
 
 6.1 Structural lines
 ~~~~~~~~~~~~~~~~~~~~
 
-Outside literal block scalar content, every non-trivia line must be one of:
+Outside literal block scalar content, every non-comment line must be one of:
 
 * document separator: ``---`` (indent 0 only)
 * mapping entry line (section 6.2)
 * sequence item line (section 6.3)
 
-Any other non-trivia line is an error.
+Any other line (including blank lines or whitespace-only lines) is an error.
 
 6.2 Mappings
 ~~~~~~~~~~~~
@@ -329,7 +370,7 @@ An inline value is exactly one of:
 
 Inline values MUST be non-empty.
 
-Inline comments may follow inline values per section 5.3.
+Inline comments may follow inline values per section 5.2.
 
 6.5 Flow sequences (single-line ``[...]`` only)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -385,7 +426,7 @@ sequence.
 Plain scalar text is:
 
 * the characters after ``key: `` or ``- `` up to:
-  - the start of an inline comment as defined in section 5.3 (if present),
+  - the start of an inline comment as defined in section 5.2 (if present),
     otherwise end of line.
 
 Constraints:
@@ -395,7 +436,7 @@ Constraints:
 * must not start with ``[`` or ``|``
 
 The character ``#`` is allowed as literal text if it does not start an inline
-comment per section 5.3.
+comment per section 5.2.
 
 7.2 Literal block scalars (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -405,7 +446,7 @@ A literal block scalar is introduced by an inline value exactly equal to ``|``:
 * ``key: |``
 * ``- |``
 
-(An inline comment may follow ``|`` using the inline comment rules in 5.3.)
+(An inline comment may follow ``|`` using the inline comment rules in 5.2.)
 
 Block scalar content rules:
 
@@ -417,6 +458,12 @@ Block scalar content rules:
   verbatim as the content line text.
 * Empty lines (completely empty) are allowed and are part of the content.
 * SIML does **not** trim trailing blank lines in the block.
+
+Semantic value:
+
+* The semantic value is the concatenation of content lines **including their
+  terminating ``\n``** (since every line ends in LF), i.e., content is preserved
+  exactly as it appeared after stripping the fixed indent.
 
 Inside literal block scalar content:
 
@@ -432,7 +479,7 @@ SIML nesting is defined purely by indentation, using an indentation stack.
 
 * A nested node introduced by ``key:`` or ``-`` must start at exactly
   parent indentation + 2 spaces.
-* When the next non-trivia line has indentation less than the current container,
+* When the next non-comment line has indentation less than the current container,
   the current container ends and parsing resumes at the matching parent level.
 * A document ends at:
   - a document separator ``---`` at indentation 0, or
@@ -470,7 +517,10 @@ SIML forbids:
 * quoted scalars (single or double quotes)
 * anchors, aliases, tags, directives (``%YAML``), and ``...`` terminators
 * implicit typing at the syntax level (null/bool/number are not special)
-* tabs for indentation
+* tabs for indentation (spaces only; 2 per level)
+* blank lines outside literal block scalar content
+* lines containing only spaces or tabs outside literal block scalar content
+* empty comments (``#`` / ``#␠``) anywhere outside literal block scalar content
 * trailing spaces outside literal block scalar content
 * arbitrary YAML “compact” forms such as ``- key: value`` in sequences
   (in SIML, sequence items are either ``- <inline>`` or ``-`` followed by a
@@ -482,39 +532,44 @@ SIML forbids:
 
 .. code-block:: text
 
-   stream        ::= trivia* document (separator trivia* document)* trivia* EOF
+   stream         ::= comment* document (separator comment* document)* comment* EOF
 
-   separator     ::= '---' ( spaces1plus '# ' TEXT )? EOL
+   separator      ::= '---' ( spaces1plus '# ' NONEMPTY_TEXT )? EOL
 
-   document      ::= node_at_indent(0)
+   document       ::= container_at_indent(0)
 
-   node          ::= mapping | sequence | scalar
+   container      ::= mapping | sequence
+   node           ::= mapping | sequence | scalar
 
-   mapping       ::= entry (trivia* entry)*
-   entry         ::= INDENT key ':' EOL node_at_indent(INDENT+2)
-                  |  INDENT key ':' ' ' inline_value inline_comment? EOL
+   mapping        ::= entry (comment* entry)*
+   entry          ::= INDENT key ':' EOL node_at_indent(INDENT+2)
+                   |  INDENT key ':' ' ' inline_value inline_comment? EOL
 
-   sequence      ::= item (trivia* item)*
-   item          ::= INDENT '-' EOL node_at_indent(INDENT+2)
-                  |  INDENT '-' ' ' inline_value inline_comment? EOL
+   sequence       ::= item (comment* item)*
+   item           ::= INDENT '-' EOL node_at_indent(INDENT+2)
+                   |  INDENT '-' ' ' inline_value inline_comment? EOL
 
-   inline_value  ::= '|'               ; literal block scalar
-                  |  flow_seq
-                  |  plain_scalar
+   inline_value   ::= '|'               ; literal block scalar
+                   |  flow_seq
+                   |  plain_scalar
 
-   inline_comment ::= spaces1plus '# ' TEXT
+   inline_comment ::= spaces1plus '# ' NONEMPTY_TEXT
 
-   flow_seq      ::= '[' ']' | '[' atom (',' atom)* ']'
-   atom          ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET)
-                     AND not starting with '[' or '|'
+   flow_seq       ::= '[' ']' | '[' atom (',' atom)* ']'
+   atom           ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET)
+                      AND not starting with '[' or '|'
 
-   plain_scalar  ::= 1*(CHAR_EXCEPT_NEWLINE)
-                     AND not starting with '[' or '|'
-                     AND with optional inline_comment removed
+   plain_scalar   ::= 1*(CHAR_EXCEPT_NEWLINE)
+                      AND not starting with '[' or '|'
+                      AND with optional inline_comment removed
 
-   trivia        ::= blank_line | comment_line
-   blank_line    ::= EOL
-   comment_line  ::= INDENT? '#' TEXT EOL
+   comment        ::= comment_line
+   comment_line   ::= INDENT2N? '# ' NONEMPTY_TEXT EOL
+
+   INDENT2N       ::= 0 | 2 | 4 | ... spaces (no tabs)
+
+Blank lines and whitespace-only lines are forbidden outside literal block scalar
+content and therefore do not appear in the grammar.
 
 Literal block scalar content is defined operationally in section 7.2.
 
@@ -529,9 +584,9 @@ These restrictions are chosen so a reference parser can be implemented as:
 * plus minimal scanning (``strncmp``, ``strchr``),
 * with round-trip support by storing:
   - node style (block vs flow sequences; plain vs literal scalars)
-  - trivia lines verbatim in their encountered positions
+  - comment lines verbatim in their encountered positions
   - for each inline comment: the count of spaces preceding ``#`` (alignment),
-    and the comment text after the required ``"# "`` prefix.
+    and the (non-empty) comment text after the required ``"# "`` prefix.
 
 Because structural formatting is otherwise canonical (fixed indentation, fixed
 spacing, no trailing spaces, no multi-line flow syntax), emitting structure is
