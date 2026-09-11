@@ -1229,21 +1229,15 @@ static siml_event_type siml_handle_inline_value(siml_parser *p, siml_event *ev,
                                                 size_t indent,
                                                 size_t value_start, size_t value_len,
                                                 unsigned int ic_spaces,
-                                                const char *ic_ptr, size_t ic_len,
-                                                siml_error_code header_ic_err,
-                                                const char *header_ic_msg) {
+                                                const char *ic_ptr, size_t ic_len) {
     if (value_len > SIML_MAX_INLINE_VALUE_LEN) {
         siml_set_error(p, SIML_ERR_INLINE_VALUE_TOO_LONG,
                        "inline value too long (max 2048 bytes)");
         return SIML_EVENT_ERROR;
     }
     if (value_len == 0) {
-        if (ic_ptr) {
-            siml_set_error(p, header_ic_err, header_ic_msg);
-        } else {
-            siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
-                           "inline value is empty");
-        }
+        siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
+                       "inline value is empty");
         return SIML_EVENT_ERROR;
     }
 
@@ -1401,7 +1395,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             item_len = i - pos;
             if (item_len > SIML_MAX_FLOW_ELEMENT_LEN) {
                 siml_set_error(p, SIML_ERR_FLOW_ATOM_TOO_LONG,
-                               "flow sequence atom too long (max 128 bytes)");
+                               "flow-scalar too long (max 128 bytes)");
                 return SIML_EVENT_ERROR;
             }
             if (s[pos] == '|') {
@@ -1873,9 +1867,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     p, ev,
                     s + indent, key_len, indent,
                     value_start, value_len,
-                    ic_spaces, ic_ptr, ic_len,
-                    SIML_ERR_HEADER_MAP_INLINE_COMMENT,
-                    "header-only mapping entry must not have inline comments");
+                    ic_spaces, ic_ptr, ic_len);
             }
 
             if (!siml_parse_sequence_item(p, s, len, indent,
@@ -1904,9 +1896,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 p, ev,
                 0, 0, indent,
                 value_start, value_len,
-                ic_spaces, ic_ptr, ic_len,
-                SIML_ERR_HEADER_SEQ_INLINE_COMMENT,
-                "header-only sequence item must not have inline comments");
+                ic_spaces, ic_ptr, ic_len);
             }
         }
     }
