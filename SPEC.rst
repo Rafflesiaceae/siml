@@ -255,9 +255,9 @@ Additional size limits:
 
 Examples::
 
-  coolobj: # an important object
+  cool: thing # an important object
   default: 1 # integer as string
-  flags: [A,B]      # aligned with other fields
+  flags: [A,B]    # aligned with other fields
   description: |  # block follows
 
 A parser MUST preserve, for each inline comment occurrence:
