@@ -402,22 +402,16 @@ A block sequence is an ordered list of items written as sequence item lines.
 A sequence item line is:
 
 * indentation (multiple of 2 spaces),
-* either:
-  - **nested sequence**: ``-`` and end of line (no trailing spaces),
-  - **mapping item**: ``-`` then single space then the mapping's first entry, or
-  - **inline value**: ``-`` then single space then an inline value (section 6.4).
+* ``-`` followed by exactly one space, and
+* an item body.
 
-Nested sequence item line:
+A bare ``-`` at the end of a line MUST NOT be used.
 
-* MUST be exactly ``-`` and MUST end immediately (no spaces).
-* Introduces a nested block sequence whose first item line MUST appear at
-  indentation ``(dash_indent + 2)``.
-* MUST NOT introduce a mapping.
-* Inline comments MUST NOT appear on nested sequence item lines.
+An item body is exactly one of:
 
-A nested sequence item MUST be followed by at least one sequence item line at
-the required indentation. Empty sequences are representable only as ``[]``
-(flow form); an empty block sequence MUST NOT be used.
+* a mapping's first entry,
+* a nested block sequence's first item, beginning with another ``- ``, or
+* an inline value (section 6.4).
 
 A mapping item MUST put its first mapping entry on the sequence item line:
 
@@ -435,15 +429,41 @@ Subsequent mapping entries MUST appear at that indentation. The first entry
 otherwise follows all mapping-entry rules from section 6.2, including the
 header-only form.
 
-The following form MUST NOT be used for a mapping item:
+If the text after ``- `` starts with a syntactically valid key immediately
+followed by ``:``, the item is a mapping item, not a plain scalar.
+
+A nested block sequence MUST put its first item on the parent sequence item
+line:
+
+.. code-block:: text
+
+  - - id: first
+      value: 1
+    - id: second
+      value: 2
+  - - id: third
+      value: 3
+
+Each additional ``- `` introduces one sequence level at two more virtual
+indentation spaces. This form may be chained to any permitted nesting depth,
+for example ``- - - value``.
+
+Subsequent items in the nested sequence MUST appear at the indentation of its
+first item's dash. A comment MUST NOT appear between a parent sequence item's
+dash and the nested sequence's first item because they occupy the same physical
+line.
+
+The following forms MUST NOT be used:
 
 .. code-block:: text
 
   -
-    id: r_fullscreen
 
-If the text after ``- `` starts with a syntactically valid key immediately
-followed by ``:``, the item is a mapping item, not a plain scalar.
+  -
+    - value
+
+Empty sequences are representable only as ``[]`` (flow form); an empty block
+sequence MUST NOT be used.
 
 6.3.2 Flow sequences (single-line ``[...]`` only)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -507,7 +527,8 @@ An inline value appears only after:
 * ``- `` (dash, single space)
 
 Text after ``- `` that starts with ``key:`` is the first entry of a mapping
-item as defined in section 6.3.1, not an inline value.
+item as defined in section 6.3.1, not an inline value. Text that starts with
+another ``- `` is the first item of a nested block sequence.
 
 An inline value is exactly one of:
 
@@ -671,10 +692,11 @@ Algorithm for each incoming non-block-scalar physical line:
    * Header-only mapping entry ``key:`` sets ``pending`` to ``C+2`` and causes
      the nested node indentation to be checked on the next non-comment
      structural line.
-   * Nested sequence item ``-`` sets ``pending`` to ``C+2``. The next
-     non-comment structural line MUST be a sequence item.
    * Mapping item ``- key: ...`` opens a mapping at ``C+2`` and processes
      ``key: ...`` as its first entry on the same physical line.
+   * Nested sequence item ``- - ...`` opens a sequence at ``C+2`` and processes
+     the second dash as its first item on the same physical line. Apply this
+     rule recursively for additional leading ``- `` prefixes.
    * When a nested node begins at indentation ``C+2``, that indentation level is
      pushed onto ``stack`` as part of opening the nested node.
    * Node termination is determined by subsequent dedent (step 4).
@@ -689,8 +711,8 @@ SIML nesting is defined purely by indentation, using an indentation stack.
 
 * A nested node introduced by ``key:`` MUST start at exactly parent
   indentation + 2 spaces.
-* A nested sequence introduced by ``-`` MUST start at exactly parent
-  indentation + 2 spaces.
+* A nested sequence introduced by ``- - ...`` starts at exactly parent
+  indentation + 2 virtual spaces, with its first item on the introducing line.
 * When the next line has indentation less than the current node,
   the current node ends and parsing resumes at the matching parent level.
 * A document ends at:
@@ -709,8 +731,7 @@ restricted, a streaming parser only needs:
 
 * the current mode (mapping/sequence/block-scalar),
 * an indentation stack (small integer array),
-* one-line lookahead when completing header-only mapping entries and nested
-  sequence items.
+* one-line lookahead when completing header-only mapping entries.
 
 
 9. Key syntax
@@ -783,9 +804,7 @@ Keys and mapping entries:
 Sequence items:
 
 * expected single space after '-'
-* header-only sequence item must not have inline comments
-* header-only sequence item must have a nested node
-* mapping sequence item must start after '- '
+* sequence item must start after '- '
 
 Scalars:
 
@@ -866,11 +885,15 @@ SIML forbids (MUST NOT support):
    entry           ::= INDENT key ':' EOL comment* node_at_indent(INDENT+2)
                     |  INDENT key ':' ' ' inline_value inline_comment? EOL
 
-   ; A bare dash may introduce only a nested block sequence. A mapping item starts
-   ; its first entry after '- '; that entry is treated as if it were at INDENT+2.
-   item            ::= INDENT '-' EOL comment* sequence_at_indent(INDENT+2)
-                    |  INDENT '- ' mapping_with_first_entry_at_indent(INDENT+2)
-                    |  INDENT '-' ' ' inline_value inline_comment? EOL
+   ; Every item has content after '- '. The body is treated as if it were at
+   ; INDENT+2. A nested block sequence starts its first item with another '- '.
+   item            ::= INDENT '- ' item_body_at_indent(INDENT+2)
+
+   item_body_at_indent(I)
+                   ::= mapping_with_first_entry_at_indent(I)
+                    |  '- ' item_body_at_indent(I+2)
+                       (comment* item_at_indent(I))*
+                    |  inline_value inline_comment? EOL
 
    ; The mapping form is selected when the text after '- ' starts with key ':'.
    ; Its remaining entries use ordinary entry lines at INDENT+2.
