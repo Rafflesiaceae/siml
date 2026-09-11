@@ -18,7 +18,6 @@ static int siml_file_read_line(void *userdata,
     struct file_reader *r;
     size_t len;
     int ch;
-    int saw_lf;
     size_t new_cap;
     char *new_buf;
 
@@ -42,12 +41,7 @@ static int siml_file_read_line(void *userdata,
     }
 
     len = 0;
-    saw_lf = 0;
     while ((ch = fgetc(r->fp)) != EOF) {
-        if (ch == '\n') {
-            saw_lf = 1;
-            break;
-        }
         if (len + 1 >= r->cap) {
             new_cap = r->cap * 2;
             new_buf = (char *)realloc(r->buf, new_cap);
@@ -58,21 +52,17 @@ static int siml_file_read_line(void *userdata,
             r->cap = new_cap;
         }
         r->buf[len++] = (char)ch;
+        if (ch == '\n') {
+            break;
+        }
     }
 
     if (ferror(r->fp)) {
         return -1;
     }
-    if (ch == EOF && len == 0) {
+    if (len == 0) {
         return 0;
     }
-    if (ch == EOF && len > 0 && !saw_lf) {
-        r->buf[len] = '\0';
-        *out_line = r->buf;
-        *out_len  = len;
-        return 2;
-    }
-
     r->buf[len] = '\0';
     *out_line = r->buf;
     *out_len  = len;

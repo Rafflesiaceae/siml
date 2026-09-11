@@ -970,7 +970,10 @@ file.
 * Single-header library: include in exactly one translation unit per binary.
 * Pure ANSI C89.
 * No dynamic allocation.
-* No I/O. The caller provides a line-reading callback.
+* No I/O. The caller provides a line-reading callback that returns raw bytes
+  — including the terminating line feed when one is present. The parser is
+  responsible for stripping the line feed and detecting forbidden byte
+  sequences (CRLF, bare CR, missing final line feed).
 * Pull parser API: the caller repeatedly calls the parse function to obtain events.
 * All variable-sized buffers are held in a caller-supplied scratch buffer.
   Both the parser object and the scratch buffer may be stack- or

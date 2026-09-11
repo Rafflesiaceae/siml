@@ -153,15 +153,15 @@ typedef struct siml_slice_s {
     size_t      len;
 } siml_slice;
 
-/* Read-next-line callback: must return
- *   1  : success, *out_line / *out_len set (line does NOT include the LF)
- *   2  : final line read successfully but it had no terminating LF --
- *        the parser treats this as an error per the SIML spec; set
- *        *out_line / *out_len to the partial line before returning 2
- *   0  : end of stream (EOF, no more bytes)
+/* Line-reading callback: must return
+ *   1  : data available; out_line and out_len set to raw bytes including the
+ *        terminating LF when one is present (LF absent only on the last line
+ *        of a stream that ends without one)
+ *   0  : end of stream (no bytes; out_line and out_len not meaningful)
  *  <0  : I/O error
  *
  * The returned pointer must remain valid until the next call to the callback.
+ * The parser strips the LF (and detects CRLF / missing-LF errors) itself.
  */
 typedef int (*siml_read_line_fn)(void *userdata,
                                  const char **out_line,
@@ -216,7 +216,6 @@ typedef enum siml_pending_kind_e {
  * however suits the target (stack, static, heap). Must outlive the parser.
  */
 typedef struct siml_scratch_s {
-    char              peek_buf[SIML_MAX_LINE_LEN + 1];
     char              pending_key[SIML_MAX_KEY_LEN + 1];
     char              pending_container_key[SIML_MAX_KEY_LEN + 1];
     char              flow_key[SIML_MAX_KEY_LEN + 1];
@@ -241,9 +240,6 @@ typedef struct siml_parser_s {
     long              line_no;
     int               have_line;   /* boolean */
     int               at_eof;      /* boolean */
-    int               have_peek;   /* boolean */
-    size_t            peek_len;
-    char             *peek_buf;
     siml_error_code   line_cr_code;
 
     /* High-level document state */
@@ -478,140 +474,56 @@ static siml_slice siml_make_slice(const char *p, size_t len) {
  *   1 on success, 0 on EOF, -1 on error.
  */
 static int siml_fetch_line(siml_parser *p) {
-    const char *line;
+    const char *raw;
     size_t len;
     int rc;
 
-    if (p->have_peek) {
-        p->line = p->peek_buf;
-        p->line_len = p->peek_len;
-        p->have_peek = 0;
-        p->have_line = 1;
-        p->line_no += 1;
-        p->line_cr_code = SIML_ERR_NONE;
-        {
-            size_t i;
-            int found_cr = 0;
-            for (i = 0; i < p->line_len; ++i) {
-                if (p->line[i] == '\r') {
-                    found_cr = 1;
-                    if (i + 1 < p->line_len) {
-                        p->line_cr_code = SIML_ERR_CR;
-                        return 1;
-                    }
-                }
-            }
-            if (found_cr && p->line_len > 0 && p->line[p->line_len - 1] == '\r') {
-                const char *peek_line;
-                size_t peek_len;
-                int peek_rc;
-                peek_rc = p->read_line(p->userdata, &peek_line, &peek_len);
-                if (peek_rc > 0) {
-                    if (peek_rc == 2) {
-                        p->at_eof = 1;
-                        siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
-                                       "final line without LF");
-                        return -1;
-                    }
-                    if (peek_len > SIML_MAX_LINE_LEN) {
-                        siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
-                                       "physical line too long (max 4608 bytes)");
-                        return -1;
-                    }
-                    memcpy(p->peek_buf, peek_line, peek_len);
-                    p->peek_buf[peek_len] = '\0';
-                    p->peek_len = peek_len;
-                    p->have_peek = 1;
-                    p->line_cr_code = SIML_ERR_CRLF;
-                } else if (peek_rc == 0) {
-                    p->at_eof = 1;
-                    p->line_cr_code = SIML_ERR_CR;
-                } else {
-                    siml_set_error(p, SIML_ERR_IO,
-                                   "I/O error while reading input");
-                    return -1;
-                }
-            }
-        }
-        return 1;
-    }
     if (p->at_eof) {
         p->have_line = 0;
         return 0;
     }
-    rc = p->read_line(p->userdata, &line, &len);
-    if (rc > 0) {
-        p->line      = line;
-        p->line_len  = len;
-        p->have_line = 1;
-        p->line_no  += 1;
-        p->line_cr_code = SIML_ERR_NONE;
-        if (rc == 2) {
-            p->at_eof = 1;
-            siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
-                           "final line without LF");
-            return -1;
-        }
-        {
-            size_t i;
-            int found_cr = 0;
-            for (i = 0; i < len; ++i) {
-                if (line[i] == '\r') {
-                    found_cr = 1;
-                    if (i + 1 < len) {
-                        p->line_cr_code = SIML_ERR_CR;
-                        return 1;
-                    }
-                }
-            }
-            if (found_cr && len > 0 && line[len - 1] == '\r') {
-                const char *peek_line;
-                size_t peek_len;
-                int peek_rc;
-                peek_rc = p->read_line(p->userdata, &peek_line, &peek_len);
-                if (peek_rc > 0) {
-                    if (peek_rc == 2) {
-                        p->at_eof = 1;
-                        siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
-                                       "final line without LF");
-                        return -1;
-                    }
-                    if (peek_len > SIML_MAX_LINE_LEN) {
-                        siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
-                                       "physical line too long (max 4608 bytes)");
-                        return -1;
-                    }
-                    memcpy(p->peek_buf, peek_line, peek_len);
-                    p->peek_buf[peek_len] = '\0';
-                    p->peek_len = peek_len;
-                    p->have_peek = 1;
-                    p->line_cr_code = SIML_ERR_CRLF;
-                } else if (peek_rc == 0) {
-                    p->at_eof = 1;
-                    p->line_cr_code = SIML_ERR_CR;
-                } else {
-                    siml_set_error(p, SIML_ERR_IO,
-                                   "I/O error while reading input");
-                    return -1;
-                }
-            }
-        }
-        return 1;
+    rc = p->read_line(p->userdata, &raw, &len);
+    if (rc < 0) {
+        p->have_line = 0;
+        siml_set_error(p, SIML_ERR_IO, "I/O error while reading input");
+        return -1;
     }
     if (rc == 0) {
         p->at_eof    = 1;
         p->have_line = 0;
         return 0;
     }
-    p->have_line = 0;
-    if (rc == 2) {
-        siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
-                       "final line without LF");
+    p->line_no  += 1;
+    p->have_line = 1;
+    p->line_cr_code = SIML_ERR_NONE;
+    if (len > 0 && raw[len - 1] == '\n') {
+        len -= 1;
+        if (len > 0 && raw[len - 1] == '\r') {
+            p->line_cr_code = SIML_ERR_CRLF;
+            len -= 1;
+        }
     } else {
-        siml_set_error(p, SIML_ERR_IO,
-                       "I/O error while reading input");
+        p->at_eof = 1;
+        if (len > 0) {
+            siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
+                           "final line without LF");
+            return -1;
+        }
+        p->have_line = 0;
+        return 0;
     }
-    return -1;
+    if (p->line_cr_code == SIML_ERR_NONE) {
+        size_t i;
+        for (i = 0; i < len; ++i) {
+            if (raw[i] == '\r') {
+                p->line_cr_code = SIML_ERR_CR;
+                break;
+            }
+        }
+    }
+    p->line     = raw;
+    p->line_len = len;
+    return 1;
 }
 
 static int siml_check_line_common(siml_parser *p) {
@@ -905,7 +817,6 @@ void siml_parser_init(siml_parser *p,
                       siml_read_line_fn read_line,
                       void *userdata) {
     if (!p || !scratch) return;
-    p->peek_buf              = scratch->peek_buf;
     p->pending_key           = scratch->pending_key;
     p->pending_container_key = scratch->pending_container_key;
     p->flow_key              = scratch->flow_key;
@@ -928,8 +839,6 @@ void siml_parser_reset(siml_parser *p) {
     p->line_no   = 0;
     p->have_line = 0;
     p->at_eof    = 0;
-    p->have_peek = 0;
-    p->peek_len = 0;
     p->line_cr_code = SIML_ERR_NONE;
     p->started   = 0;
     p->in_document = 0;
