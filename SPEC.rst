@@ -212,25 +212,38 @@ Empty comments are forbidden (both comment lines and inline comments).
 
 5.1 Comment lines
 -----------------
+Outside literal block scalar content, a comment line is:
 
-A comment line is a line of the form:
+* ``INDENT "# " TEXT`` where ``INDENT`` is a multiple of 2 spaces and ``TEXT`` is non-empty.
 
-* indentation (zero or more spaces; MUST be a multiple of 2) MUST match current
-  nesting level,
-* ``#``,
-* **exactly one space**,
-* **one or more** characters of comment text (up to end of line).
+**Where comments may appear**:
 
-Additional size limits:
+Let ``A`` be the set of indentation levels currently open on the indentation stack.
+
+* If the parser is **expecting the first line of a nested node** after a
+  header-only ``key:`` or ``-`` with header indentation ``H``, then a comment
+  line **MUST** have indentation exactly ``H+2``.
+
+* Otherwise, a comment line indentation **MUST** be one of the open levels:
+  ``indent ∈ A``.
+
+Comments **MUST NOT create a new indentation level**.
+
+**Dedent on comments**:
+
+A comment line at indentation ``C`` ends (pops) any open nodes with indentation
+``> C`` before the comment is attached to level ``C``.
+
+(Comments do not count as nested-node content for satisfying “header-only … must
+have a nested node”.)
+
+**Additional size limits**:
 
 * The comment text (the bytes after the required ``"# "`` prefix) MUST be at
   most **512 bytes**.
 
-Rules:
+**Rules**:
 
-* Comment line indentation MUST be a multiple of 2 spaces (0, 2, 4, …).
-* Comment line indentation MUST use spaces only; tabs MUST NOT be used.
-* Comment lines are trivia; they MUST NOT affect structure.
 * Comment lines MUST be preserved verbatim for round-trip.
 
 5.2 Inline comments (alignment-preserving)
@@ -530,7 +543,7 @@ SIML nesting is defined purely by indentation, using an indentation stack.
 
 * A nested node introduced by ``key:`` or ``-`` MUST start at exactly
   parent indentation + 2 spaces.
-* When the next non-comment line has indentation less than the current node,
+* When the next line has indentation less than the current node,
   the current node ends and parsing resumes at the matching parent level.
 * A document ends at:
   - a document separator ``---`` at indentation 0, or
