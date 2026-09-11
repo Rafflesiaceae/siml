@@ -22,6 +22,10 @@ extern "C" {
 #define SIML_MAX_KEY_LEN 128
 #endif
 
+#ifndef SIML_ERROR_BUF_SIZE
+#define SIML_ERROR_BUF_SIZE 160
+#endif
+
 #ifndef SIML_MAX_NESTING
 #define SIML_MAX_NESTING 32
 #endif
@@ -217,6 +221,7 @@ typedef struct siml_scratch_s {
     char              pending_container_key[SIML_MAX_KEY_LEN + 1];
     char              flow_key[SIML_MAX_KEY_LEN + 1];
     char              block_key[SIML_MAX_KEY_LEN + 1];
+    char              error_buf[SIML_ERROR_BUF_SIZE];
     siml_container    stack[SIML_MAX_NESTING];
     size_t            flow_stack_start[SIML_MAX_NESTING];
     size_t            flow_stack_end[SIML_MAX_NESTING];
@@ -304,7 +309,7 @@ typedef struct siml_parser_s {
     /* Error state */
     siml_error_code   error_code;
     const char       *error_message;
-    char              error_buf[160];
+    char             *error_buf;
     long              error_line;
 } siml_parser;
 
@@ -370,7 +375,7 @@ static void siml_set_error(siml_parser *p, siml_error_code code, const char *msg
         p->error_code = code;
         p->error_line = p->line_no;
         if (msg) {
-            while (msg[i] != '\0' && i + 1 < sizeof(p->error_buf)) {
+            while (msg[i] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
                 p->error_buf[i] = msg[i];
                 ++i;
             }
@@ -406,15 +411,15 @@ static void siml_set_error_one(siml_parser *p, siml_error_code code,
     p->error_code = code;
     p->error_line = p->line_no;
     if (prefix) {
-        while (prefix[i] != '\0' && i + 1 < sizeof(p->error_buf)) {
+        while (prefix[i] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
             p->error_buf[i] = prefix[i];
             ++i;
         }
     }
-    i = siml_append_ulong(p->error_buf, i, sizeof(p->error_buf), value);
+    i = siml_append_ulong(p->error_buf, i, SIML_ERROR_BUF_SIZE, value);
     if (suffix) {
         size_t j = 0;
-        while (suffix[j] != '\0' && i + 1 < sizeof(p->error_buf)) {
+        while (suffix[j] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
             p->error_buf[i++] = suffix[j++];
         }
     }
@@ -430,19 +435,19 @@ static void siml_set_error_two(siml_parser *p, siml_error_code code,
     p->error_code = code;
     p->error_line = p->line_no;
     if (prefix) {
-        while (prefix[i] != '\0' && i + 1 < sizeof(p->error_buf)) {
+        while (prefix[i] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
             p->error_buf[i] = prefix[i];
             ++i;
         }
     }
-    i = siml_append_ulong(p->error_buf, i, sizeof(p->error_buf), a);
+    i = siml_append_ulong(p->error_buf, i, SIML_ERROR_BUF_SIZE, a);
     if (middle) {
         size_t j = 0;
-        while (middle[j] != '\0' && i + 1 < sizeof(p->error_buf)) {
+        while (middle[j] != '\0' && i + 1 < SIML_ERROR_BUF_SIZE) {
             p->error_buf[i++] = middle[j++];
         }
     }
-    i = siml_append_ulong(p->error_buf, i, sizeof(p->error_buf), b);
+    i = siml_append_ulong(p->error_buf, i, SIML_ERROR_BUF_SIZE, b);
     p->error_buf[i] = '\0';
     p->error_message = p->error_buf;
 }
@@ -905,6 +910,7 @@ void siml_parser_init(siml_parser *p,
     p->pending_container_key = scratch->pending_container_key;
     p->flow_key              = scratch->flow_key;
     p->block_key             = scratch->block_key;
+    p->error_buf             = scratch->error_buf;
     p->stack                 = scratch->stack;
     p->flow_stack_start      = scratch->flow_stack_start;
     p->flow_stack_end        = scratch->flow_stack_end;
