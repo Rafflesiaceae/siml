@@ -4,8 +4,8 @@ DOCUMENT_START
 MAPPING_START
 MAPPING_START key=id
 SCALAR key=value value='42'  # (spaces=2) the answer
-COMMENT # another comment
 MAPPING_END
+COMMENT # another comment
 SEQUENCE_START style=flow key=flags  # (spaces=3) trailing comment
 SCALAR value='ONE'
 SCALAR value='TWO'

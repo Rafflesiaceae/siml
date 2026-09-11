@@ -153,13 +153,16 @@ Any such line MUST cause a parsing error.
 3.5 Trailing spaces
 -------------------
 
-SIML forbids trailing spaces.
+SIML forbids trailing spaces, except after a flow sequence inline value
+(section 6.3.2).
 
 * Every line MUST end immediately at the last non-space
   character (followed by the LF).
 
 This rule applies to **all** lines, including literal block scalar content
-lines (section 7.2).
+lines (section 7.2), **except** that a line whose inline value is a flow
+sequence MAY have trailing spaces after the closing ``]`` (before any inline
+comment or end of line).
 
 3.6 Maximum physical line length
 --------------------------------
@@ -422,10 +425,13 @@ Rules:
 * The first character MUST be ``[`` and the last character before any inline
   comment MUST be ``]``.
 * Immediately after the closing ``]`` there MUST be either:
-  - end of line, or
-  - an inline comment as defined in section 5.2 (i.e. one or more spaces, then
-    ``#``, then exactly one space, then non-empty text).
-  Any other trailing characters after ``]`` MUST cause a parsing error.
+  - end of line,
+  - one or more spaces then end of line, or
+  - one or more spaces then an inline comment as defined in section 5.2
+    (i.e. one or more spaces, then ``#``, then exactly one space, then non-empty
+    text).
+  Any other trailing **non-space** characters after ``]`` MUST cause a parsing
+  error.
 * **No whitespace is allowed anywhere inside** the brackets.
 * Elements MUST be separated by commas.
 * Empty list MUST be exactly ``[]``.
@@ -532,8 +538,9 @@ Block scalar content rules:
 * Let ``H`` be the indentation of the header line.
 * The content consists of all following lines until the first **non-blank** line
   whose indentation is **less than** ``H + 2``, or until EOF.
-* Every **non-blank** content line MUST start with **exactly** ``H + 2`` spaces
-  which are stripped.
+* Every **non-blank** content line MUST start with **at least** ``H + 2`` spaces.
+  Exactly ``H + 2`` spaces are stripped; any additional leading spaces become
+  part of the scalar text.
 * Blank lines (empty lines) are allowed **only** when they occur **between
   non-blank content lines**. Leading or trailing blank lines are forbidden.
 * Lines containing only spaces or tabs are forbidden.
@@ -672,7 +679,6 @@ Inline values and flow sequences:
 * multi-line flow sequences are forbidden
 * unterminated flow sequence
 * unterminated flow sequence on the same line
-* trailing characters after flow sequence are forbidden
 * flow sequence contains whitespace (forbidden)
 * empty flow sequence element
 * trailing comma in flow sequence is forbidden

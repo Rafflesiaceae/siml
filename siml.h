@@ -515,11 +515,6 @@ static int siml_check_line_nonblock(siml_parser *p) {
                        "whitespace-only lines are not allowed here");
         return 0;
     }
-    if (s[len - 1] == ' ') {
-        siml_set_error(p, SIML_ERR_TRAILING_SPACES,
-                       "trailing spaces are not allowed here");
-        return 0;
-    }
     return 1;
 }
 
@@ -1133,7 +1128,7 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
                                "empty flow sequence element");
                 return SIML_EVENT_ERROR;
             }
-            if (s[i] == '[' || s[i] == ']') {
+            if (i < end && (s[i] == '[' || s[i] == ']')) {
                 siml_set_error(p, SIML_ERR_FLOW_TRAILING_CHARS,
                                "trailing characters after flow sequence are forbidden");
                 return SIML_EVENT_ERROR;
@@ -1268,12 +1263,6 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
                 return ev->type;
             }
 
-            if (indent != p->block_indent + 2) {
-                siml_set_error(p, SIML_ERR_BLOCK_WRONG_INDENT,
-                               "block literal content line has wrong indentation");
-                return SIML_EVENT_ERROR;
-            }
-
             if (len - (p->block_indent + 2) > SIML_MAX_BLOCK_LINE_LEN) {
                 siml_set_error(p, SIML_ERR_BLOCK_LINE_TOO_LONG,
                                "block literal content line too long (max 4096 bytes)");
@@ -1369,9 +1358,21 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
         {
             size_t indent = 0;
             int comment_rc;
-            comment_rc = siml_parse_comment_line(p, p->line, p->line_len, &indent);
+            size_t trimmed_len = p->line_len;
+            int has_trailing_spaces = 0;
+            while (trimmed_len > 0 && p->line[trimmed_len - 1] == ' ') {
+                trimmed_len -= 1;
+            }
+            has_trailing_spaces = (trimmed_len != p->line_len);
+
+            comment_rc = siml_parse_comment_line(p, p->line, trimmed_len, &indent);
             if (comment_rc < 0) return SIML_EVENT_ERROR;
             if (comment_rc > 0) {
+                if (has_trailing_spaces) {
+                    siml_set_error(p, SIML_ERR_TRAILING_SPACES,
+                                   "trailing spaces are not allowed here");
+                    return SIML_EVENT_ERROR;
+                }
                 if (!siml_comment_indent_allowed(p, indent)) {
                     siml_set_error(p, SIML_ERR_COMMENT_INDENT,
                                    "comment indentation must match current nesting level");
@@ -1392,7 +1393,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     return siml_emit_pending_end(p, ev);
                 }
                 ev->type = SIML_EVENT_COMMENT;
-                ev->value = siml_make_slice(p->line, p->line_len);
+                ev->value = siml_make_slice(p->line, trimmed_len);
                 ev->line = p->line_no;
                 p->have_line = 0;
                 return ev->type;
@@ -1401,7 +1402,14 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
 
         {
             const char *s = p->line;
-            size_t len = p->line_len;
+            size_t trimmed_len = p->line_len;
+            int has_trailing_spaces = 0;
+            while (trimmed_len > 0 && s[trimmed_len - 1] == ' ') {
+                trimmed_len -= 1;
+            }
+            has_trailing_spaces = (trimmed_len != p->line_len);
+            {
+            size_t len = trimmed_len;
             size_t indent = 0;
             size_t key_len = 0;
             size_t value_start = 0;
@@ -1417,6 +1425,11 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             if (!siml_count_indent(p, s, len, &indent)) return SIML_EVENT_ERROR;
 
             if (indent == 0 && len >= 3 && s[0] == '-' && s[1] == '-' && s[2] == '-') {
+                if (has_trailing_spaces && len == 3) {
+                    siml_set_error(p, SIML_ERR_SEPARATOR_FORMAT,
+                                   "document separator must be exactly ---");
+                    return SIML_EVENT_ERROR;
+                }
                 if (len == 3) {
                     if (p->pending_kind == SIML_PENDING_MAP) {
                         siml_set_error(p, SIML_ERR_HEADER_MAP_NO_NESTED,
@@ -1584,6 +1597,12 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                               &has_inline_value)) {
                     return SIML_EVENT_ERROR;
                 }
+                if (has_trailing_spaces &&
+                    (!has_inline_value || s[value_start] != '[')) {
+                    siml_set_error(p, SIML_ERR_TRAILING_SPACES,
+                                   "trailing spaces are not allowed here");
+                    return SIML_EVENT_ERROR;
+                }
                 cur->item_count += 1;
 
                 if (!has_inline_value) {
@@ -1677,6 +1696,12 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                           &has_inline_value)) {
                 return SIML_EVENT_ERROR;
             }
+            if (has_trailing_spaces &&
+                (!has_inline_value || s[value_start] != '[')) {
+                siml_set_error(p, SIML_ERR_TRAILING_SPACES,
+                               "trailing spaces are not allowed here");
+                return SIML_EVENT_ERROR;
+            }
             cur->item_count += 1;
 
             if (!has_inline_value) {
@@ -1757,6 +1782,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
             ev->line = p->line_no;
             p->have_line = 0;
             return ev->type;
+            }
         }
     }
 }
