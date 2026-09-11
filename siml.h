@@ -189,7 +189,7 @@ typedef struct siml_event_s {
     const char      *error_message;         /* static string; never NULL for ERROR */
 } siml_event;
 
-/* Internal types */
+/* Internal types: mode, container, and flow-stack frame */
 typedef enum siml_mode_e {
     SIML_MODE_NORMAL = 0,
     SIML_MODE_FLOW,
@@ -207,6 +207,13 @@ typedef struct siml_container_s {
     int                 item_count;
 } siml_container;
 
+typedef struct siml_flow_frame_s {
+    size_t start;
+    size_t end;
+    size_t pos;
+    int    started;
+} siml_flow_frame;
+
 /* Caller-supplied scratch buffer holding all variable-sized arrays. Allocate
  * however suits the target (stack, static, heap). Must outlive the parser.
  */
@@ -215,10 +222,7 @@ typedef struct siml_scratch_s {
     char              mode_key[SIML_MAX_KEY_LEN + 1]; /* flow or block key */
     char              error_buf[SIML_ERROR_BUF_SIZE];
     siml_container    stack[SIML_MAX_NESTING];
-    size_t            flow_stack_start[SIML_MAX_NESTING];
-    size_t            flow_stack_end[SIML_MAX_NESTING];
-    size_t            flow_stack_pos[SIML_MAX_NESTING];
-    int               flow_stack_started[SIML_MAX_NESTING];
+    siml_flow_frame   flow_stack[SIML_MAX_NESTING];
 } siml_scratch;
 
 /* Parser state — all variable-sized buffers live in siml_scratch. */
@@ -271,10 +275,7 @@ typedef struct siml_parser_s {
 
     /* Flow sequence parsing state */
     int               flow_depth;
-    size_t           *flow_stack_start;
-    size_t           *flow_stack_end;
-    size_t           *flow_stack_pos;
-    int              *flow_stack_started;
+    siml_flow_frame  *flow_stack;
     unsigned int      flow_inline_spaces;
     const char       *flow_inline_comment;
     size_t            flow_inline_comment_len;
@@ -795,11 +796,8 @@ void siml_parser_init(siml_parser *p,
     p->pending_key = scratch->pending_key;
     p->mode_key    = scratch->mode_key;
     p->error_buf   = scratch->error_buf;
-    p->stack                 = scratch->stack;
-    p->flow_stack_start      = scratch->flow_stack_start;
-    p->flow_stack_end        = scratch->flow_stack_end;
-    p->flow_stack_pos        = scratch->flow_stack_pos;
-    p->flow_stack_started    = scratch->flow_stack_started;
+    p->stack       = scratch->stack;
+    p->flow_stack  = scratch->flow_stack;
     p->read_line             = read_line;
     p->userdata              = userdata;
     siml_parser_reset(p);
@@ -1109,10 +1107,10 @@ static int siml_prepare_flow_sequence(siml_parser *p,
     }
 
     p->flow_depth = 1;
-    p->flow_stack_start[0] = value_start;
-    p->flow_stack_end[0] = end_index;
-    p->flow_stack_pos[0] = value_start + 1;
-    p->flow_stack_started[0] = 0;
+    p->flow_stack[0].start   = value_start;
+    p->flow_stack[0].end     = end_index;
+    p->flow_stack[0].pos     = value_start + 1;
+    p->flow_stack[0].started = 0;
     return 1;
 }
 
@@ -1233,11 +1231,11 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             return SIML_EVENT_ERROR;
         }
 
-        end = p->flow_stack_end[depth];
-        pos = p->flow_stack_pos[depth];
+        end = p->flow_stack[depth].end;
+        pos = p->flow_stack[depth].pos;
 
-        if (!p->flow_stack_started[depth]) {
-            p->flow_stack_started[depth] = 1;
+        if (!p->flow_stack[depth].started) {
+            p->flow_stack[depth].started = 1;
             ev->type = SIML_EVENT_SEQUENCE_START;
             ev->seq_style = SIML_SEQ_STYLE_FLOW;
             if (depth == 0) {
@@ -1290,15 +1288,15 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
                 return SIML_EVENT_ERROR;
             }
 
-            p->flow_stack_pos[depth] = match + 1;
-            if (p->flow_stack_pos[depth] < end) {
-                if (s[p->flow_stack_pos[depth]] != ',') {
+            p->flow_stack[depth].pos = match + 1;
+            if (p->flow_stack[depth].pos < end) {
+                if (s[p->flow_stack[depth].pos] != ',') {
                     siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
                                    "excess non-comment characters after flow sequence termination");
                     return SIML_EVENT_ERROR;
                 }
-                p->flow_stack_pos[depth] += 1;
-                if (p->flow_stack_pos[depth] == end) {
+                p->flow_stack[depth].pos += 1;
+                if (p->flow_stack[depth].pos == end) {
                     siml_set_error(p, SIML_ERR_FLOW_TRAILING_COMMA,
                                    "trailing comma in flow sequence is forbidden");
                     return SIML_EVENT_ERROR;
@@ -1312,10 +1310,10 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
                                    "");
                 return SIML_EVENT_ERROR;
             }
-            p->flow_stack_start[p->flow_depth] = pos;
-            p->flow_stack_end[p->flow_depth] = match;
-            p->flow_stack_pos[p->flow_depth] = pos + 1;
-            p->flow_stack_started[p->flow_depth] = 0;
+            p->flow_stack[p->flow_depth].start   = pos;
+            p->flow_stack[p->flow_depth].end     = match;
+            p->flow_stack[p->flow_depth].pos     = pos + 1;
+            p->flow_stack[p->flow_depth].started = 0;
             p->flow_depth += 1;
             continue;
         }
@@ -1359,15 +1357,15 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
             ev->value = siml_make_slice(s + pos, item_len);
             ev->line = p->line_no;
 
-            p->flow_stack_pos[depth] = pos + item_len;
-            if (p->flow_stack_pos[depth] < end) {
-                if (s[p->flow_stack_pos[depth]] != ',') {
+            p->flow_stack[depth].pos = pos + item_len;
+            if (p->flow_stack[depth].pos < end) {
+                if (s[p->flow_stack[depth].pos] != ',') {
                     siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
                                    "excess non-comment characters after flow sequence termination");
                     return SIML_EVENT_ERROR;
                 }
-                p->flow_stack_pos[depth] += 1;
-                if (p->flow_stack_pos[depth] == end) {
+                p->flow_stack[depth].pos += 1;
+                if (p->flow_stack[depth].pos == end) {
                     siml_set_error(p, SIML_ERR_FLOW_TRAILING_COMMA,
                                    "trailing comma in flow sequence is forbidden");
                     return SIML_EVENT_ERROR;
