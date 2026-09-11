@@ -48,8 +48,7 @@ Example
 -------------
 
 A SIML file is a sequence of one or more items (documents). Items are
-separated by ``---`` lines; the first separator is optional and a trailing
-separator is allowed.
+separated by ``---`` lines.
 
 * Each item is a flat mapping from string keys to values.
 * Value types:
@@ -65,8 +64,7 @@ No nested mappings, no lists of lists, no lists of mappings.
 
 * Text encoding: UTF-8, no BOM.
 * Line endings: ``\n`` or ``\r\n`` (treated the same).
-* Tabs are only allowed inside literal block contents, not for indentation.
-* Indentation is done with spaces.
+* Indentation is strict and exactly two spaces (no variable size, no Tabs)
 
 3. Top-level structure
 ----------------------
@@ -74,7 +72,7 @@ No nested mappings, no lists of lists, no lists of mappings.
 * Items are separated by lines that are exactly ``---`` (optionally followed
   by spaces and/or an inline comment).
 * The first item may omit the leading ``---``; a trailing ``---`` after the
-  last item is allowed and ignored.
+  last item is NOT allowed.
 * Blank lines and full-line comments may appear before separators.
 * Each item is written as a mapping whose fields start at column 0.
   There is no top-level list syntax like ``- key: value``; every field starts
@@ -97,9 +95,8 @@ No nested mappings, no lists of lists, no lists of mappings.
 Everything after ``key: `` on a line is the raw value text, before stripping
 trailing whitespace and optional inline comments.
 
-SIML itself treats all non-list values as strings; interpretation as integer,
-float, enum, etc. is up to the application. Lists are sequences of strings
-(bare words).
+SIML itself treats all scalar values as strings; interpretation as integer,
+float, enum, etc. is up to the application. Lists are sequences of strings.
 
 5.1 Scalar values
 ~~~~~~~~~~~~~~~~~
@@ -111,8 +108,7 @@ A scalar value is any non-empty text not starting with ``[`` or ``|``::
    max: 10.0
    mode: normal
 
-The parser returns the scalar as a string. Numeric parsing (``strtol``,
-``strtod``) or enum interpretation is done by the caller.
+The parser returns the scalar as a string.
 
 5.2 List values
 ~~~~~~~~~~~~~~~
@@ -140,7 +136,6 @@ Rules:
   ``]`` is allowed.
 * Each list item is optional leading/trailing spaces followed by a non-empty
   sequence of characters that are not a comma or closing bracket.
-* No quoting or escaping inside lists. ``#`` is just another character.
 
 5.3 Literal block values (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -155,60 +150,69 @@ A field can introduce a multi-line literal::
 
 Rules:
 
-1. The field line is ``key: |``. The value part is exactly a single ``|``
-   (ignoring trailing spaces and inline comment).
+1. The field line is written as ``key: |``. The value part is exactly ``|``,
+   ignoring trailing spaces and any inline comment.
 
-2. The block content consists of all subsequent lines until:
+2. The block content consists of all following lines until one of:
 
-   * A line that starts a new field for the current item (column 0) with the
-     same key/colon rules as any other field line.
-   * A document separator line ``---`` at column 0,
-   * A comment line that starts at column 0 (``#`` with no leading spaces), or
+   * Any line with a non-space character at column 0, or
    * End of file.
 
-   To keep text such as ``note: still part of the block`` inside the block,
-   indent it by at least one extra space so it no longer matches the field
-   indentation rules above.
+3. Every non-empty content line MUST start with exactly two spaces. The parser
+   strips these two spaces and uses the remainder of the line as text. Anything
+   after the first two spaces (including ``#``, ``:``, ``---``, or tabs) is
+   taken literally.
 
-3. For each content line:
+4. Empty lines between content lines become empty lines in the resulting
+   string.
 
-   * Determine the smallest number of leading spaces across all
-     non-blank content lines. Strip exactly that many leading spaces
-     from every line (blank lines are left empty). Tabs are left as-is,
-     matching YAML’s indentation stripping.
-   * The resulting lines are joined with ``\n`` to form the value string.
-   * The final newline at the end of the block is optional; an implementation
-     may keep or drop it, as long as it is consistent.
-
-4. Empty lines between text lines belong to the block and produce empty
-   lines in the resulting string.
+5. The resulting block value is all content lines joined with ``\n``. A parser
+   must keep trailing newline at the end of the block.
 
 6. Comments and blank lines
 ---------------------------
 
-* A line whose first non-space character is ``#`` is a comment
-  and is ignored.
-* A line that is all whitespace or empty is a blank line and is ignored,
-  except:
+Full-line comments
+~~~~~~~~~~~~~~~~~~
 
-  - Inside a literal block, blank lines are part of the content (because
-    they appear after a ``key: |`` and before the next item or EOF).
+* A line *outside* of literal blocks whose first non-space character is ``#``
+  is a comment and is ignored.
 
-Inline comments:
+Inline comments
+~~~~~~~~~~~~~~~
 
-* On key/value lines (non-block), a ``#`` that appears after the value
-  can start an inline comment.
-* For simplicity, SIML parsers may implement the following rule:
+Inline comments are only recognized **outside** literal blocks.
 
-  *Strip from the first ``#`` that is preceded by at least one space.*
+On scalar and list field lines, an inline comment starts at the first ``#``
+that is:
 
-  Example::
+* preceded by at least one space, and
+* for list values, appears **after** the closing ``]`` (if any).
 
-     default: 1  # default fullscreen
+The comment runs from that ``#`` to end of line. The stored value is the text
+before the ``#``, with trailing spaces removed.
 
-  Here the stored value is ``"1"``.
+Scalars:
 
-* Inside lists and literal blocks, ``#`` has no special meaning.
+* For scalar fields, a ``#`` without preceding whitespace (e.g. ``mode: fast#1``)
+  is part of the value, not a comment.
+
+Lists:
+
+* For single-line lists, inline comments may only follow the complete list, e.g.::
+
+    flags: [CVAR_ARCHIVE, CVAR_TEMP]  # two flags
+
+* In multi-line lists, blank lines and full-line comments (lines whose first
+  non-space character is ``#``) may appear between items, e.g.::
+
+    flags: [
+      foo,
+      # some comment
+      bar,
+    ]
+
+  Here the items are ``foo`` and ``bar``; the ``#`` line is ignored.
 
 7. Informal grammar
 -------------------
@@ -266,7 +270,7 @@ Major restrictions:
 
   - No booleans, null, or typed numbers at the syntax level.
   - Everything is returned as strings/lists of strings; type interpretation
-    is up to the caller.
+    is up to the consumer.
 
 * No advanced YAML features:
 
@@ -282,11 +286,6 @@ Major restrictions:
     elements are always bare words.
   - Literal blocks are always ``|`` and can appear anywhere within an item.
 
-* Minimal comment behavior:
-
-  - Only full-line comments and simple inline comments on scalar/list lines.
-  - ``#`` in literal blocks is just a character.
-
 Implementation intent
 ---------------------
 
@@ -299,4 +298,4 @@ portable ANSI C as:
 * Without requiring a general tokenizer or parser generator.
 
 This makes SIML suitable as a configuration source in small C codebases
-that want YAML-like readability with trivial parsing complexity.
+that want YAML-like readability with trivial parsing complexity. 0000000000000000000000000000000000000000
