@@ -1,26 +1,14 @@
+==================================
 SIML (Simple Item Markup Language)
 ==================================
 
 SIML is a strict, line-oriented subset of YAML 1.2 designed so that a streaming
-reference parser can be written in short, clean ANSI C.
-
-SIML supports **arbitrary nesting** of mappings and sequences using YAML block
-indentation. It also supports **single-line flow sequences** ``[...]``.
-
-It can be **perfectly round-tripped**, such that a reference streaming parser
-can 1:1 regenerate the input byte-by-byte.
-
-Requirements Language
----------------------
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
-"SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
-"OPTIONAL" in this document are to be interpreted as described in BCP
-14 [RFC2119] [RFC8174] when, and only when, they appear in all
-capitals, as shown here.
+reference parser can be written in short, clean ANSI C and that it can be
+**perfectly round-tripped**, such that a reference streaming parser can 1:1
+regenerate the input byte-by-byte.
 
 Example
--------
+=======
 
 .. code-block:: text
 
@@ -48,8 +36,17 @@ Example
      Example with a nested mapping and a block sequence.
 
 
+Requirements Language
+=====================
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+"SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+"OPTIONAL" in this document are to be interpreted as described in BCP
+14 [RFC2119] [RFC8174] when, and only when, they appear in all
+capitals, as shown here.
+
 1. Data model (semantic layer)
-------------------------------
+==============================
 
 A SIML file is a **document stream**: it MUST contain one or more documents
 separated by ``---`` lines.
@@ -59,22 +56,10 @@ Each document MUST be exactly one node of one of these kinds:
 * **Mapping**: ordered list of (key → value) entries
 * **Sequence**: ordered list of values
 
-Documents MUST NOT be scalars.
-
 Documents MUST be non-empty:
 
 * A document mapping MUST have at least one entry.
 * A document sequence MUST have at least one item.
-
-(Scalars are still allowed as values inside mappings and sequences; see 7.)
-
-SIML has **no implicit typing**. All scalars are strings; interpretation as
-int/float/enum is up to the consumer.
-
-Scalar presentation forms:
-
-* **Plain scalar**: single line text (SIML “plain” constraints apply)
-* **Literal block scalar**: multi-line string introduced by ``|``
 
 Sequence presentation forms:
 
@@ -87,7 +72,7 @@ There are no flow mappings (``{...}``) and no quoted scalars in SIML.
 
 
 2. Concrete syntax and round-tripping
--------------------------------------
+=====================================
 
 SIML defines a **concrete syntax** that includes both structure and trivia.
 A conforming round-tripping parser MUST preserve:
@@ -111,15 +96,15 @@ byte-for-byte identical for any valid ``.siml`` file.
 
 
 3. Encoding, line endings, whitespace
--------------------------------------
+=====================================
 
 3.1 Encoding
-~~~~~~~~~~~~
+------------
 
 * Input MUST be UTF-8 text and MUST NOT contain a BOM.
 
 3.2 Line endings (LF only)
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+--------------------------
 
 SIML uses **LF** line endings only.
 
@@ -138,7 +123,7 @@ For perfect round-trip:
 * A conforming serializer MUST emit ``\n`` as the line terminator for all lines.
 
 3.3 Indentation
-~~~~~~~~~~~~~~~
+---------------
 
 * Indentation MUST be spaces only (``0x20``), never tabs.
 * Indentation MUST be exactly two spaces per nesting level.
@@ -155,7 +140,7 @@ Tabs:
   scalar text.
 
 3.4 Forbidden blank lines and whitespace-only lines
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+---------------------------------------------------
 
 Outside literal block scalar content (section 7.2), SIML forbids:
 
@@ -165,7 +150,7 @@ Outside literal block scalar content (section 7.2), SIML forbids:
 Any such line MUST cause a parsing error.
 
 3.5 Trailing spaces
-~~~~~~~~~~~~~~~~~~~
+-------------------
 
 Outside literal block scalar content (section 7.2), SIML forbids trailing spaces.
 
@@ -174,10 +159,10 @@ Outside literal block scalar content (section 7.2), SIML forbids trailing spaces
 
 
 4. Document stream
-------------------
+==================
 
 4.1 Document separators
-~~~~~~~~~~~~~~~~~~~~~~~
+-----------------------
 
 Documents are separated by a line that is exactly:
 
@@ -202,7 +187,7 @@ Separators:
 * A trailing ``---`` after the last document MUST NOT appear.
 
 4.2 Leading and inter-document trivia
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-------------------------------------
 
 Only comment lines (section 5) MAY appear:
 
@@ -215,14 +200,14 @@ content.
 
 
 5. Comment lines and inline comments
-------------------------------------
+====================================
 
 Comments are recognized only **outside** literal block scalar content.
 
 Empty comments are forbidden (both comment lines and inline comments).
 
 5.1 Comment lines
-~~~~~~~~~~~~~~~~~
+-----------------
 
 A comment line is a line of the form:
 
@@ -252,7 +237,7 @@ ALLOWED::
     # indented comment
 
 5.2 Inline comments (alignment-preserving)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------------------------
 
 Inline comments MAY appear only on **structural lines that already contain an
 inline value** (plain scalar, flow sequence, or block scalar marker). They MUST
@@ -294,7 +279,7 @@ Notes:
 
 
 6. Node forms and structure
----------------------------
+===========================
 
 A document is a single node, but documents MUST NOT be scalars (section 1).
 
@@ -314,7 +299,7 @@ The node kind is determined by its introducing line and (for header-only forms)
 the next non-comment line.
 
 6.1 Structural lines
-~~~~~~~~~~~~~~~~~~~~
+--------------------
 
 Outside literal block scalar content, every non-comment line MUST be one of:
 
@@ -326,7 +311,7 @@ Any other line (including blank lines or whitespace-only lines) MUST cause a
 parsing error.
 
 6.2 Mappings
-~~~~~~~~~~~~
+------------
 
 A mapping is an ordered list of entries written as mapping entry lines.
 
@@ -352,8 +337,11 @@ are not representable in SIML and are therefore NOT RECOMMENDED at the data
 model level; syntactically, a header-only entry with no nested lines is an
 error.
 
-6.3 Sequences (block form)
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+6.3 Sequences
+-------------
+
+6.3.1 Sequences (block form)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A block sequence is an ordered list of items written as sequence item lines.
 
@@ -375,26 +363,8 @@ A header-only item MUST be followed by at least one nested structural line at
 the required indentation. Empty sequences are representable only as ``[]``
 (flow form); an empty block sequence MUST NOT be used.
 
-6.4 Inline values (scalar / flow sequence / literal marker)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-An inline value appears only after:
-
-* ``key: `` (key, colon, single space), or
-* ``- `` (dash, single space)
-
-An inline value is exactly one of:
-
-* **literal block marker**: ``|``
-* **flow sequence**: ``[...]`` (single line only; section 6.5)
-* **plain scalar**: any other non-empty text (section 7.1)
-
-Inline values MUST be non-empty.
-
-Inline comments MAY follow inline values per section 5.2.
-
-6.5 Flow sequences (single-line ``[...]`` only)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+6.3.2 Flow sequences (single-line ``[...]`` only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Flow sequences are allowed only as a single-line inline value. Multi-line
 bracket form MUST NOT be used.
@@ -429,17 +399,35 @@ Flow element constraints:
   - MUST NOT contain ``,``, ``]``, or newline
   - MUST NOT start with ``[`` or ``|``
 
+6.4 Inline values (scalar / flow sequence / literal marker)
+-----------------------------------------------------------
+
+An inline value appears only after:
+
+* ``key: `` (key, colon, single space), or
+* ``- `` (dash, single space)
+
+An inline value is exactly one of:
+
+* **literal block marker**: ``|``
+* **flow sequence**: ``[...]`` (single line only; section 6.3.2)
+* **plain scalar**: any other non-empty text (section 7.1)
+
+Inline values MUST be non-empty.
+
+Inline comments MAY follow inline values per section 5.2.
 
 7. Scalars
-----------
+==========
 
-SIML scalars are strings and have two presentation forms:
+SIML scalars are always strings (interpretation as int/float/enum is up to the
+consumer) and have two presentation forms:
 
-* plain scalar (single line)
-* literal block scalar (multi-line, ``|``)
+* **plain scalar** (single line)
+* **literal block scalar** (multi-line, ``|``)
 
 7.1 Plain scalars
-~~~~~~~~~~~~~~~~~
+-----------------
 
 A plain scalar is the inline value text when it is neither ``|`` nor a flow
 sequence.
@@ -460,7 +448,7 @@ The character ``#`` MAY appear as literal text if it does not start an inline
 comment per section 5.2.
 
 7.2 Literal block scalars (``|``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+---------------------------------
 
 A literal block scalar is introduced by an inline value exactly equal to ``|``:
 
@@ -494,7 +482,7 @@ Inside literal block scalar content:
 
 
 8. Nesting and termination (indent stack rules)
------------------------------------------------
+===============================================
 
 SIML nesting is defined purely by indentation, using an indentation stack.
 
@@ -515,7 +503,7 @@ restricted, a streaming parser only needs:
 
 
 9. Key syntax
--------------
+=============
 
 Keys are unquoted identifiers:
 
@@ -529,7 +517,7 @@ Keys:
 
 
 10. Disallowed YAML features (non-goals)
-----------------------------------------
+========================================
 
 SIML forbids (MUST NOT support):
 
@@ -549,7 +537,7 @@ SIML forbids (MUST NOT support):
 
 
 11. Informal grammar (EBNF-ish)
--------------------------------
+===============================
 
 .. code-block:: text
 
@@ -596,7 +584,7 @@ Literal block scalar content is defined operationally in section 7.2.
 
 
 12. Implementation intent
--------------------------
+=========================
 
 These restrictions are chosen so a reference parser can be implemented as:
 
@@ -615,7 +603,7 @@ trivial and deterministic, enabling perfect round-trip of any valid ``.siml``
 file.
 
 13. Reference Implementation
--------------------------
+============================
 
 It thus should be easily possible to write a header-only, pure ANSI C89
 implementation of the SIML specification.
