@@ -116,7 +116,7 @@ read_line_from_file(void *userdata, const char **out_line, size_t *out_len)
     size_t len;
     size_t new_cap;
     char *new_buf;
-    int next;
+    int saw_lf;
 
     r = (struct file_reader *)userdata;
     if (!r || !out_line || !out_len || !r->fp) {
@@ -131,15 +131,10 @@ read_line_from_file(void *userdata, const char **out_line, size_t *out_len)
 
     len = 0;
     ch = EOF;
+    saw_lf = 0;
     while ((ch = fgetc(r->fp)) != EOF) {
         if (ch == '\n') {
-            break;
-        }
-        if (ch == '\r') {
-            next = fgetc(r->fp);
-            if (next != '\n' && next != EOF) {
-                ungetc(next, r->fp);
-            }
+            saw_lf = 1;
             break;
         }
         if (len + 1 >= r->cap) {
@@ -157,6 +152,12 @@ read_line_from_file(void *userdata, const char **out_line, size_t *out_len)
     }
     if (ch == EOF && len == 0) {
         return 0; /* EOF */
+    }
+    if (ch == EOF && len > 0 && !saw_lf) {
+        r->buf[len] = '\0';
+        *out_line = r->buf;
+        *out_len  = len;
+        return 2;
     }
 
     r->buf[len] = '\0';

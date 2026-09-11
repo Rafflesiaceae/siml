@@ -23,6 +23,7 @@ static int siml_mem_read_line(void *userdata,
     struct mem_reader *r;
     size_t start;
     size_t i;
+    int saw_lf;
 
     r = (struct mem_reader *)userdata;
     if (!r || !out_line || !out_len) {
@@ -34,13 +35,20 @@ static int siml_mem_read_line(void *userdata,
 
     start = r->pos;
     i = start;
+    saw_lf = 0;
     while (i < r->len && r->data[i] != '\n') {
         i += 1;
     }
 
+    if (i < r->len && r->data[i] == '\n') {
+        saw_lf = 1;
+    }
     *out_line = r->data + start;
     *out_len = i - start;
     r->pos = (i < r->len) ? (i + 1) : i;
+    if (!saw_lf && r->pos >= r->len && *out_len > 0) {
+        return 2;
+    }
     return 1;
 }
 

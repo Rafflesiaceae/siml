@@ -58,6 +58,7 @@ typedef enum siml_error_code {
     SIML_ERR_NONE = 0,
     SIML_ERR_IO,
     SIML_ERR_UTF8_BOM,
+    SIML_ERR_FINAL_LINE_NO_LF,
     SIML_ERR_CRLF,
     SIML_ERR_CR,
     SIML_ERR_LINE_TOO_LONG,
@@ -93,6 +94,7 @@ typedef enum siml_error_code {
     SIML_ERR_INLINE_COMMENT_TOO_LONG,
     SIML_ERR_INLINE_VALUE_EMPTY,
     SIML_ERR_INLINE_VALUE_TOO_LONG,
+    SIML_ERR_SCALAR_STARTS_WITH_PIPE,
     SIML_ERR_FLOW_MULTI_LINE,
     SIML_ERR_FLOW_UNTERMINATED,
     SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
@@ -142,6 +144,7 @@ typedef struct siml_slice_s {
 
 /* Read-next-line callback: must return
  *   >0 : success, *out_line / *out_len set
+ *    2 : final line without LF (error)
  *    0 : end of stream (EOF)
  *   <0 : error
  *
@@ -471,6 +474,12 @@ static int siml_fetch_line(siml_parser *p) {
                 int peek_rc;
                 peek_rc = p->read_line(p->userdata, &peek_line, &peek_len);
                 if (peek_rc > 0) {
+                    if (peek_rc == 2) {
+                        p->at_eof = 1;
+                        siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
+                                       "final line without LF");
+                        return -1;
+                    }
                     if (peek_len > SIML_MAX_LINE_LEN) {
                         siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
                                        "physical line too long (max 4608 bytes)");
@@ -504,6 +513,12 @@ static int siml_fetch_line(siml_parser *p) {
         p->have_line = 1;
         p->line_no  += 1;
         p->line_cr_code = SIML_ERR_NONE;
+        if (rc == 2) {
+            p->at_eof = 1;
+            siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
+                           "final line without LF");
+            return -1;
+        }
         {
             size_t i;
             int found_cr = 0;
@@ -522,6 +537,12 @@ static int siml_fetch_line(siml_parser *p) {
                 int peek_rc;
                 peek_rc = p->read_line(p->userdata, &peek_line, &peek_len);
                 if (peek_rc > 0) {
+                    if (peek_rc == 2) {
+                        p->at_eof = 1;
+                        siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
+                                       "final line without LF");
+                        return -1;
+                    }
                     if (peek_len > SIML_MAX_LINE_LEN) {
                         siml_set_error(p, SIML_ERR_LINE_TOO_LONG,
                                        "physical line too long (max 4608 bytes)");
@@ -550,8 +571,13 @@ static int siml_fetch_line(siml_parser *p) {
         return 0;
     }
     p->have_line = 0;
-    siml_set_error(p, SIML_ERR_IO,
-                   "I/O error while reading input");
+    if (rc == 2) {
+        siml_set_error(p, SIML_ERR_FINAL_LINE_NO_LF,
+                       "final line without LF");
+    } else {
+        siml_set_error(p, SIML_ERR_IO,
+                       "I/O error while reading input");
+    }
     return -1;
 }
 
@@ -1127,8 +1153,8 @@ static int siml_prepare_flow_sequence(siml_parser *p,
     }
 
     if (!saw_close) {
-        siml_set_error(p, SIML_ERR_FLOW_MULTI_LINE,
-                       "multi-line flow sequences are forbidden");
+        siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
+                       "unterminated flow sequence on the same line");
         return 0;
     }
     if (depth != 0) {
@@ -1223,8 +1249,8 @@ static siml_event_type siml_handle_inline_value(siml_parser *p, siml_event *ev,
 
     if (p->line[value_start] == '|') {
         if (value_len != 1) {
-            siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
-                           "inline value is empty");
+            siml_set_error(p, SIML_ERR_SCALAR_STARTS_WITH_PIPE,
+                           "scalar must not start with '|'");
             return SIML_EVENT_ERROR;
         }
         return siml_start_block(p, ev, key, key_len, indent,
@@ -1379,8 +1405,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
                 return SIML_EVENT_ERROR;
             }
             if (s[pos] == '|') {
-                siml_set_error(p, SIML_ERR_FLOW_EMPTY_ELEM,
-                               "empty flow sequence element");
+                siml_set_error(p, SIML_ERR_SCALAR_STARTS_WITH_PIPE,
+                               "scalar must not start with '|'");
                 return SIML_EVENT_ERROR;
             }
 
@@ -1576,9 +1602,8 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     return SIML_EVENT_ERROR;
                 }
                 if (!p->seen_document) {
-                    siml_set_error(p, SIML_ERR_DOC_SCALAR,
-                                   "document root must not be a scalar");
-                    return SIML_EVENT_ERROR;
+                    p->pending_stream_end = 1;
+                    return siml_emit_pending_end(p, ev);
                 }
                 if (p->in_document) {
                     p->pending_close = 1;

@@ -55,7 +55,7 @@ UTF-8 encoded input, unless explicitly stated otherwise.
 1. Data model (semantic layer)
 ==============================
 
-A SIML file is a **document stream**: it MUST contain one or more documents
+A SIML file is a **document stream**: it MAY contain zero or more documents
 separated by ``---`` lines.
 
 Each document MUST be exactly one node of one of these kinds:
@@ -63,7 +63,7 @@ Each document MUST be exactly one node of one of these kinds:
 * **Mapping**: ordered list of (key → value) entries
 * **Sequence**: ordered list of values
 
-Documents MUST be non-empty:
+If present:
 
 * A document mapping MUST have at least one entry.
 * A document sequence MUST have at least one item.
@@ -111,10 +111,11 @@ SIML uses **LF** line endings only.
   and MUST cause a parsing error.
 * A standalone ``\r`` (CR) MUST NOT appear anywhere in a ``.siml`` file and MUST
   cause a parsing error.
+* A final non-empty line without a terminating ``\n`` MUST cause a parsing error.
 
 (Implementation note: a streaming parser can enforce this by rejecting any
 input line that ends with ``\r\n`` or contains ``\r`` before the terminating
-``\n``.)
+``\n``; it must also detect and reject a final non-empty line without ``\n``.)
 
 For perfect round-trip:
 
@@ -447,6 +448,8 @@ Rules:
 * Elements MUST be separated by commas.
 * Empty list MUST be exactly ``[]``.
 * Non-empty lists MUST have the form ``[elem,elem,...]`` with no trailing comma.
+* If the closing ``]`` is missing on the same line, the parser MUST report
+  ``unterminated flow sequence on the same line``.
 
 Flow element constraints:
 
@@ -689,6 +692,7 @@ Implementations MUST have the following **separate** error messages:
 Line endings and physical line length:
 
 * UTF-8 BOM is forbidden
+* final line without LF
 * CRLF is forbidden (``\r\n`` found)
 * CR is forbidden (``\r`` found)
 * physical line too long (max 4608 bytes)
@@ -735,6 +739,10 @@ Sequence items:
 * header-only sequence item must not have inline comments
 * header-only sequence item must have a nested node
 
+Scalars:
+
+* scalar must not start with '|'
+
 Comments:
 
 * empty comment is forbidden
@@ -748,7 +756,6 @@ Inline values and flow sequences:
 
 * inline value is empty
 * inline value too long (max 2048 bytes)
-* multi-line flow sequences are forbidden
 * unterminated flow sequence
 * unterminated flow sequence on the same line
 * flow sequence contains whitespace (forbidden)
@@ -757,6 +764,7 @@ Inline values and flow sequences:
 * flow sequence atom too long (max 128 bytes)
 * excess non-comment characters after flow sequence termination
 * inline comments not allowed inside flow sequence
+* scalar must not start with ``|``
 
 Literal block scalars:
 
@@ -789,7 +797,7 @@ SIML forbids (MUST NOT support):
 
 .. code-block:: text
 
-   stream          ::= comment* document (comment* separator comment* document)* comment* EOF
+   stream          ::= comment* (document (comment* separator comment* document)*)? comment* EOF
 
    ; Per section 4.1, '---' MUST NOT have inline comments.
    separator       ::= '---' EOL
