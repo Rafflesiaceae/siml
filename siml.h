@@ -1030,69 +1030,6 @@ static int siml_starts_sequence_item(const char *s,
     return value_len == 1 || s[start + 1] == ' ';
 }
 
-static int siml_prepare_flow_sequence(siml_parser *p,
-                                      size_t value_start,
-                                      size_t value_len) {
-    size_t i;
-    size_t end_index;
-    int depth = 0;
-    int saw_close = 0;
-
-    if (value_len < 2) {
-        siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
-                       "unterminated flow sequence on the same line");
-        return 0;
-    }
-    end_index = value_start + value_len - 1;
-
-    for (i = value_start; i <= end_index; ++i) {
-        char c = p->line[i];
-        if (c == ' ' || c == '\t') {
-            siml_set_error(p, SIML_ERR_FLOW_WHITESPACE,
-                           "flow sequence contains whitespace (forbidden)");
-            return 0;
-        }
-        if (c == '[') {
-            if (depth == 0 && i != value_start) {
-                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess non-comment characters after flow sequence termination");
-                return 0;
-            }
-            depth += 1;
-        } else if (c == ']') {
-            saw_close = 1;
-            depth -= 1;
-            if (depth < 0) {
-                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess non-comment characters after flow sequence termination");
-                return 0;
-            }
-            if (depth == 0 && i != end_index) {
-                siml_set_error(p, SIML_ERR_FLOW_EXCESS_TERM,
-                               "excess non-comment characters after flow sequence termination");
-                return 0;
-            }
-        }
-    }
-
-    if (!saw_close) {
-        siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
-                       "unterminated flow sequence on the same line");
-        return 0;
-    }
-    if (depth != 0) {
-        siml_set_error(p, SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
-                       "unterminated flow sequence on the same line");
-        return 0;
-    }
-
-    p->flow_depth = 1;
-    p->flow_stack[0].start   = value_start;
-    p->flow_stack[0].end     = end_index;
-    p->flow_stack[0].pos     = value_start + 1;
-    p->flow_stack[0].started = 0;
-    return 1;
-}
 
 static siml_event_type siml_start_block(siml_parser *p, siml_event *ev,
                                         const char *key, size_t key_len,
@@ -1132,9 +1069,12 @@ static siml_event_type siml_start_flow(siml_parser *p, siml_event *ev,
                                        size_t value_start, size_t value_len,
                                        unsigned int ic_spaces,
                                        const char *ic_ptr, size_t ic_len) {
-    if (!siml_prepare_flow_sequence(p, value_start, value_len)) {
-        return SIML_EVENT_ERROR;
-    }
+    /* value_len >= 2 guaranteed by siml_parse_inline_comment (matched brackets) */
+    p->flow_stack[0].start   = value_start;
+    p->flow_stack[0].end     = value_start + value_len - 1;
+    p->flow_stack[0].pos     = value_start + 1;
+    p->flow_stack[0].started = 0;
+    p->flow_depth = 1;
     p->mode = SIML_MODE_FLOW;
     if (key_len > 0) {
         memcpy(p->mode_key, key, key_len);
@@ -1244,6 +1184,12 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
         if (s[pos] == ',') {
             siml_set_error(p, SIML_ERR_FLOW_EMPTY_ELEM,
                            "empty flow sequence element");
+            return SIML_EVENT_ERROR;
+        }
+
+        if (s[pos] == ' ' || s[pos] == '\t') {
+            siml_set_error(p, SIML_ERR_FLOW_WHITESPACE,
+                           "flow sequence contains whitespace (forbidden)");
             return SIML_EVENT_ERROR;
         }
 
