@@ -21,6 +21,28 @@ for siml in "$TEST_DIR"/*.siml; do
     [ -e "$siml" ] || continue
     echo "[test] $siml"
     out="${siml%.siml}.out"
+    err="${siml%.siml}.err"
+    xfail="${siml%.siml}.xfail"
+
+    if [ -f "$xfail" ]; then
+        expected_err="$(cat "$xfail")"
+        if "$BIN" "$siml" >"$out" 2>"$err"; then
+            echo "[test] FAILED (expected error but succeeded): $siml" >&2
+            rc=1
+            continue
+        fi
+        if ! grep -F -q "$expected_err" "$err"; then
+            echo "[test] FAILED (error mismatch): $siml" >&2
+            echo "[test]   expected substring: $expected_err" >&2
+            echo "[test]   got stderr:" >&2
+            cat "$err" >&2
+            rc=1
+            continue
+        fi
+        rm -f "$out" "$err"
+        continue
+    fi
+
     if ! "$BIN" "$siml" >"$out"; then
         echo "[test] FAILED (parse error): $siml" >&2
         rc=1
