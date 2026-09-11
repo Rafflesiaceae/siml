@@ -1,21 +1,14 @@
-SIML (Simple Item Markup Language) — Nested + Round-Trippable YAML Subset
-========================================================================
+SIML (Simple Item Markup Language)
+==================================
 
-SIML is a strict, line-oriented subset of YAML 1.2 designed so that:
+SIML is a strict, line-oriented subset of YAML 1.2 designed so that a streaming
+reference parser can be written in short, clean ANSI C.
 
-* a streaming reference parser can be written in short, clean ANSI C, and
-* it can be easily **perfectly round-tripped** (parse → serialize).
+SIML supports **arbitrary nesting** of mappings and sequences using YAML block
+indentation. It also supports **single-line flow sequences** ``[...]``.
 
-SIML achieves “perfect round-trip” by combining:
-
-1) **canonical structural formatting** (there is only one allowed way to write
-   structure: indentation, separators, spacing), and
-2) **explicit preservation of trivia** (comments and blank lines are part of the
-   SIML concrete syntax and must be stored and re-emitted verbatim).
-
-SIML supports **arbitrary nesting** of mappings and sequences using YAML
-block indentation. It also supports **single-line flow sequences** ``[...]``.
-
+It can be **perfectly round-tripped**, such that a reference streaming parser
+can 1:1 regenerate the input byte-by-byte.
 
 Example
 -------
@@ -35,7 +28,6 @@ Example
    description: |
      Lorem ipsum dolor sit amet.
      Second line.
-
    ---
    id: cl_sensitivity
    default: 3.0
@@ -91,15 +83,13 @@ A conforming round-tripping parser MUST preserve:
   - plain scalar vs literal block scalar
   - block sequence vs flow sequence
 * all **trivia lines** (blank lines and comment lines), **exactly** as they
-  appeared, including indentation and spacing (but excluding line ending style;
-  see 3.2).
+  appeared, including indentation and spacing.
 * for each **inline comment**, the exact number of spaces that preceded the
   comment ``#`` on that line (see 5.3).
 
-Because SIML also mandates **canonical structural formatting**, a serializer
-never has to “choose formatting”: it only replays stored trivia and prints
-structure in the only allowed way. Therefore parse→serialize is byte-for-byte
-identical (except that line ending style is handled per 3.2).
+Because SIML mandates **canonical structural formatting**, a serializer never
+has to “choose formatting”: it only replays stored trivia and prints structure
+in the only allowed way. Therefore parse→serialize is byte-for-byte identical.
 
 
 3. Encoding, line endings, whitespace
@@ -110,13 +100,24 @@ identical (except that line ending style is handled per 3.2).
 
 * UTF-8 text, no BOM.
 
-3.2 Line endings
-~~~~~~~~~~~~~~~~
+3.2 Line endings (LF only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-SIML accepts either ``\n`` or ``\r\n``. For perfect round-trip:
+SIML uses **LF** line endings only.
 
-* A conforming parser MUST detect the line ending style used in the file
-  (``LF`` or ``CRLF``) and MUST re-emit the same style when serializing.
+* Every line MUST end with a single ``\n`` (LF).
+* The byte sequence ``\r\n`` (CRLF) is **forbidden** anywhere in a ``.siml``
+  file and MUST cause a parsing error.
+* A standalone ``\r`` (CR) is also **forbidden** anywhere in a ``.siml`` file
+  and MUST cause a parsing error.
+
+(Implementation note: a streaming parser can enforce this by rejecting any
+input line that ends with ``\r\n`` or contains ``\r`` before the terminating
+``\n``.)
+
+For perfect round-trip:
+
+* A conforming serializer MUST emit ``\n`` as the line terminator for all lines.
 
 3.3 Indentation
 ~~~~~~~~~~~~~~~
@@ -134,7 +135,7 @@ SIML uses indentation only for **block mappings**, **block sequences**, and
 Outside literal block scalar content (section 7), SIML forbids trailing spaces.
 
 * Every non-block-content line MUST end immediately at the last non-space
-  character (followed by the line ending).
+  character (followed by the LF).
 
 
 4. Document stream
@@ -183,7 +184,7 @@ Trivia is recognized only **outside** literal block scalar content.
 5.1 Blank lines
 ~~~~~~~~~~~~~~~
 
-A blank line is an empty line (zero characters before the line ending).
+A blank line is an empty line (zero characters before the LF).
 
 5.2 Comment lines
 ~~~~~~~~~~~~~~~~~
@@ -278,13 +279,6 @@ A mapping entry line is:
   - **header-only**: end of line (no trailing spaces), or
   - **inline value**: single space then an inline value (section 6.4)
 
-Examples::
-
-  foo:
-    bar: 1
-    baz: [A,B]
-  name: Alice
-
 Header-only mapping entry line:
 
 * Must be exactly ``key:`` and end immediately (no spaces).
@@ -307,15 +301,6 @@ A sequence item line is:
 * either:
   - **header-only**: ``-`` and end of line (no trailing spaces), or
   - **inline value**: ``-`` then single space then an inline value (section 6.4)
-
-Examples::
-
-  foo:
-    - 1
-    - 2
-    - | # item is a literal block scalar
-      line one
-      line two
 
 Header-only sequence item line:
 
@@ -411,12 +396,6 @@ Constraints:
 
 The character ``#`` is allowed as literal text if it does not start an inline
 comment per section 5.3.
-
-Examples::
-
-  mode: normal
-  note: va#lue
-  tag: foo-bar.baz
 
 7.2 Literal block scalars (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
