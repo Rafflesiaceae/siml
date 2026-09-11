@@ -10,7 +10,8 @@
 enum siml_state {
     ST_OUTSIDE = 0,
     ST_ITEM,
-    ST_BLOCK
+    ST_BLOCK_LITERAL,
+    ST_BLOCK_LIST
 };
 
 static int debug_enabled = 0;
@@ -104,6 +105,9 @@ static int
 parse_field(char *body,
             enum siml_state *state,
             int *last_was_block,
+            char *block_list_key,
+            size_t block_list_key_size,
+            int *block_list_has_items,
             const char *filename,
             long line_no)
 {
@@ -131,22 +135,13 @@ parse_field(char *body,
     }
 
     value = colon + 1;
-    if (*value != ' ') {
+    if (*value == ' ') {
+        value++;
+    } else if (*value != '\0') {
         fprintf(stderr,
                 "%s:%ld: expected space after ':' in field '%s'\n",
                 filename, line_no, key);
         return 1;
-    }
-    value++;
-
-    if (value[0] == '|') {
-        /* literal block */
-        debugf("[dbg] %s:%ld: key '%s' starts literal block\n",
-               filename, line_no, key);
-        printf("  %s = \"\"\"\n", key);
-        *state = ST_BLOCK;
-        *last_was_block = 1;
-        return 0;
     }
 
     if (*last_was_block) {
@@ -155,6 +150,53 @@ parse_field(char *body,
                 "(key '%s')\n",
                 filename, line_no, key);
         return 1;
+    }
+
+    /* detect block list (empty value, ignoring inline comment) */
+    {
+        int value_is_empty = 1;
+        char last = ' ';
+        char *scan = value;
+
+        while (*scan) {
+            if (*scan == '#' && (last == ' ' || last == '\t')) {
+                break;
+            }
+            if (*scan != ' ' && *scan != '\t') {
+                value_is_empty = 0;
+                break;
+            }
+            last = *scan;
+            scan++;
+        }
+
+        if (value_is_empty) {
+            size_t key_len = strlen(key);
+
+            if (key_len + 1 > block_list_key_size) {
+                fprintf(stderr,
+                        "%s:%ld: block list key too long '%s'\n",
+                        filename, line_no, key);
+                return 1;
+            }
+            strcpy(block_list_key, key);
+            *block_list_has_items = 0;
+            *state = ST_BLOCK_LIST;
+            *last_was_block = 0;
+            debugf("[dbg] %s:%ld: key '%s' starts block list\n",
+                   filename, line_no, key);
+            return 0;
+        }
+    }
+
+    if (value[0] == '|') {
+        /* literal block */
+        debugf("[dbg] %s:%ld: key '%s' starts literal block\n",
+               filename, line_no, key);
+        printf("  %s = \"\"\"\n", key);
+        *state = ST_BLOCK_LITERAL;
+        *last_was_block = 1;
+        return 0;
     }
 
     if (value[0] == '[') {
@@ -270,6 +312,8 @@ parse_file(FILE *fp, const char *filename)
     int item_index = -1;
     int last_was_block = 0;
     int block_pending_blank = 0;
+    char block_list_key[SIML_MAX_KEY];
+    int block_list_has_items = 0;
 
     while (fgets(line, sizeof(line), fp)) {
         char *p;
@@ -279,7 +323,7 @@ parse_file(FILE *fp, const char *filename)
         debugf("[dbg] %s:%ld: line='%s'\n",
                filename, line_no, line);
 
-        if (state == ST_BLOCK) {
+        if (state == ST_BLOCK_LITERAL) {
             if (line[0] == '-' && line[1] == ' ') {
                 /* end block, handle this line as new item */
                 printf("  \"\"\"\n");
@@ -306,6 +350,79 @@ parse_file(FILE *fp, const char *filename)
             }
         }
 
+        if (state == ST_BLOCK_LIST) {
+            char *bp = lskip_spaces(line);
+
+            if (is_blank(bp) || is_comment(bp)) {
+                continue;
+            }
+
+            if (line[0] == '-' && line[1] == ' ') {
+                /* new item starts, close empty list if needed */
+                if (!block_list_has_items) {
+                    printf("  %s[] = (empty)\n", block_list_key);
+                }
+                state = ST_OUTSIDE;
+                last_was_block = 0;
+                /* fall through to normal item handling below */
+            } else if (line[0] == ' ' && line[1] == ' ' &&
+                       line[2] == '-' && line[3] == ' ') {
+                /* block list element */
+                char *elem = line + 4;
+                char *hash_scan = elem;
+                char *closing_hash = NULL;
+                char last = ' ';
+
+                while (*hash_scan) {
+                    if (*hash_scan == '#' &&
+                        (last == ' ' || last == '\t')) {
+                        closing_hash = hash_scan;
+                        break;
+                    }
+                    last = *hash_scan;
+                    hash_scan++;
+                }
+                if (closing_hash) {
+                    *closing_hash = '\0';
+                }
+                rstrip_spaces(elem);
+                if (*elem == '\0') {
+                    fprintf(stderr,
+                            "%s:%ld: empty block list element for key '%s'\n",
+                            filename, line_no, block_list_key);
+                    return 1;
+                }
+                printf("  %s[] = %s\n", block_list_key, elem);
+                block_list_has_items = 1;
+                continue;
+            } else if (line[0] == ' ' && line[1] == ' ') {
+                int rc;
+                char *body = line + 2;
+
+                if (!block_list_has_items) {
+                    printf("  %s[] = (empty)\n", block_list_key);
+                }
+                state = ST_ITEM;
+                rc = parse_field(body, &state, &last_was_block,
+                                 block_list_key,
+                                 sizeof(block_list_key),
+                                 &block_list_has_items,
+                                 filename, line_no);
+                if (rc != 0) {
+                    return rc;
+                }
+                if (state == ST_BLOCK_LITERAL) {
+                    block_pending_blank = 0;
+                }
+                continue;
+            } else {
+                fprintf(stderr,
+                        "%s:%ld: expected block list item or new field/item\n",
+                        filename, line_no);
+                return 1;
+            }
+        }
+
         p = lskip_spaces(line);
         if (is_blank(p)) {
             continue;
@@ -327,11 +444,13 @@ parse_file(FILE *fp, const char *filename)
             last_was_block = 0;
 
             rc = parse_field(body, &state, &last_was_block,
+                             block_list_key, sizeof(block_list_key),
+                             &block_list_has_items,
                              filename, line_no);
             if (rc != 0) {
                 return rc;
             }
-            if (state == ST_BLOCK) {
+            if (state == ST_BLOCK_LITERAL) {
                 block_pending_blank = 0;
             }
             continue;
@@ -350,11 +469,13 @@ parse_file(FILE *fp, const char *filename)
             char *body = line + 2;
 
             rc = parse_field(body, &state, &last_was_block,
+                             block_list_key, sizeof(block_list_key),
+                             &block_list_has_items,
                              filename, line_no);
             if (rc != 0) {
                 return rc;
             }
-            if (state == ST_BLOCK) {
+            if (state == ST_BLOCK_LITERAL) {
                 block_pending_blank = 0;
             }
             continue;
@@ -366,8 +487,11 @@ parse_file(FILE *fp, const char *filename)
         return 1;
     }
 
-    if (state == ST_BLOCK) {
+    if (state == ST_BLOCK_LITERAL) {
         printf("  \"\"\"\n");
+    }
+    if (state == ST_BLOCK_LIST && !block_list_has_items) {
+        printf("  %s[] = (empty)\n", block_list_key);
     }
 
     return 0;

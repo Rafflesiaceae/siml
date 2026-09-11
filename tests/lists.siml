@@ -6,3 +6,14 @@
   list4: [with_hash, value#notcomment]
   description: |
     list demo
+
+- id: block_list_demo
+  tags:
+  - alpha
+  # keep beta near the top
+  - beta
+  flags: # preferred flags
+  - fast
+  - stable # avoid churn
+  labels:
+  notes: block list demo after empty labels

@@ -35,6 +35,16 @@ Example
        Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
        Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
 
+   - id: r_audio
+     default: 1
+     min: 0.0
+     max: 1.0
+     flags:
+     - CVAR_ARCHIVE
+     - CVAR_TEMP
+     description: |
+       Example using block list syntax for ``flags``.
+
 1. Data model
 -------------
 
@@ -45,7 +55,7 @@ A SIML document is:
 * Value types:
 
   - Scalar (single line, stored as a string),
-  - List of scalars (simple ``[a, b, c]`` form),
+  - List of scalars (inline ``[a, b, c]`` or block ``key:`` + ``- item`` form),
   - Literal block (multi-line string starting with ``|``).
 
 No nested mappings, no lists of lists, no lists of mappings.
@@ -95,6 +105,8 @@ two spaces::
 Rules:
 
 * Two spaces, then ``key``, then ``:``, then one space, then the value.
+* Lines starting with two spaces followed by ``-`` introduce elements of a
+  block list value (see section 5.2).
 * The item ends when one of these happens:
 
   - A new item starts (``-`` at column 0),
@@ -119,8 +131,13 @@ Blank lines and comment lines inside an item are allowed (see comments).
 Everything after ``key: `` on a line is the raw value text, before stripping
 trailing whitespace and optional inline comments.
 
-SIML itself treats all values as strings; interpretation as integer, float,
-enum, etc. is up to the application.
+For block list values, the key line has an empty value (nothing after the
+colon, ignoring trailing spaces and inline comment), and the elements of
+the list are read from subsequent ``-`` lines (see section 5.2).
+
+SIML itself treats all non-list values as strings; interpretation as integer,
+float, enum, etc. is up to the application. Lists are sequences of strings
+(bare words).
 
 5.1 Scalar values
 ~~~~~~~~~~~~~~~~~
@@ -138,13 +155,26 @@ The parser returns the scalar as a string. Numeric parsing (``strtol``,
 5.2 List values
 ~~~~~~~~~~~~~~~
 
-Lists use a minimal inline form::
+Lists are sequences of bare words and can be written in either inline
+or block form.
+
+Inline form::
 
    flags: [CVAR_ARCHIVE, CVAR_TEMP]
    tags: [foo, bar, baz]
    empty: []
 
-Rules:
+Block form (inside an item)::
+
+   - id: r_audio
+     flags:
+     - CVAR_ARCHIVE
+     - CVAR_TEMP
+
+In both forms, list elements are “bare words” like ``CVAR_ARCHIVE``,
+``foo_bar_123``, etc.
+
+Inline form rules:
 
 * The value must start with ``[`` and end with ``]`` on the same line.
 * Inside, zero or more list items, separated by commas.
@@ -154,10 +184,41 @@ Rules:
   - A non-empty sequence of characters that are not: comma, closing bracket,
     or space.
 
-  In practice, these are “bare words” like ``CVAR_ARCHIVE``,
-  ``foo_bar_123``, etc.
+* No quoting or escaping inside inline lists.
 
-* No quoting or escaping inside lists.
+Block form rules:
+
+* The key line is ``key:`` (or ``- key:`` as the first field of an item)
+  where the value part is empty after the colon (ignoring trailing spaces
+  and inline comment).
+* The list consists of subsequent lines that:
+
+  - Belong to the same item (start with the standard item indentation of
+    two spaces inside an item), and
+  - After those two spaces, start with ``-`` followed by at least one space.
+
+  Example (logical layout, without the code-block padding)::
+
+     - id: example
+       flags:
+       - CVAR_ARCHIVE
+       - CVAR_TEMP
+
+* For each such list line, everything after the ``-`` and any following
+  spaces, up to an inline comment (see section 6), is parsed as a bare word
+  and becomes one element of the list.
+* The block list ends when one of these happens:
+
+  - A new item starts (``-`` at column 0),
+  - A new field line starts (two spaces, then a key and ``:``),
+  - End of file.
+
+* Blank lines and full-line comments between list items are allowed and
+  ignored; they do not create empty elements.
+* Inline and block lists are equivalent at the data-model level; both
+  represent the same “list of scalars” value type.
+* No quoting or escaping is allowed inside list elements; each element
+  must be a single bare word.
 
 5.3 Literal block values (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -244,6 +305,7 @@ This is an informal EBNF-style description of SIML:
    item_first_field
                    ::= "- " field_body
    item_field     ::= "  " field_body
+                    | "  - " block_list_element   ; block list item
 
    field_body     ::= key ":" " " field_value
 
@@ -254,6 +316,15 @@ This is an informal EBNF-style description of SIML:
    block_marker   ::= "|"
 
    list_value     ::= "[" [ list_item { "," list_item } ] "]"
+                    | block_list
+
+   block_list     ::= { block_list_line }
+
+   block_list_line
+                   ::= "  - " block_list_element
+
+   block_list_element
+                   ::= bare_word   ; up to inline comment/#
 
    list_item      ::= SPACES? bare_word SPACES?
 
@@ -267,6 +338,7 @@ This is an informal EBNF-style description of SIML:
                    ::= BLANK_LINE | COMMENT_LINE
 
 Block content after ``block_marker`` is defined by the rules in section 5.3.
+Block list details are defined in section 5.2.
 
 8. Differences from YAML
 ------------------------
@@ -278,14 +350,15 @@ Major restrictions:
 * No arbitrary nesting:
 
   - Only: top-level sequence of flat mappings.
-  - Values are only: scalar, simple list of bare words, or literal block.
+  - Values are only: scalar, simple list of bare words (inline or block),
+    or literal block.
   - No mappings inside lists, no lists of lists, no nested mappings.
 
 * No type system:
 
   - No booleans, null, or typed numbers at the syntax level.
-  - Everything is returned as strings; type interpretation is up to the
-    caller.
+  - Everything is returned as strings/lists of strings; type interpretation
+    is up to the caller.
 
 * No advanced YAML features:
 
@@ -296,9 +369,10 @@ Major restrictions:
 * Simplified syntax:
 
   - Fixed indentation: ``- `` at column 0 for new items,
-    and two spaces for subsequent fields.
+    and two spaces for subsequent fields and block list lines.
   - Keys are unquoted identifiers.
-  - Lists are only the inline ``[a, b, c]`` form with bare words.
+  - Lists are either inline ``[a, b, c]`` or simple block lists using
+    ``- item``, and elements are always bare words.
   - Literal blocks are always ``|`` and should be the last field of the item.
 
 * Minimal comment behavior:

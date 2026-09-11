@@ -11,3 +11,12 @@ item 0
   description = """
    list demo
   """
+
+item 1
+  id = block_list_demo
+  tags[] = alpha
+  tags[] = beta
+  flags[] = fast
+  flags[] = stable
+  labels[] = (empty)
+  notes = block list demo after empty labels
