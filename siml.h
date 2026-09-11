@@ -1,1168 +1,780 @@
 #ifndef SIML_H_INCLUDED
 #define SIML_H_INCLUDED
 
+/*
+ * SIML (Simple Item Markup Language) pull parser
+ *
+ * Header-only, pure ANSI C89 implementation of the SIML specification.
+ *
+ * Features:
+ *  - No dynamic allocation: the library never calls malloc/free.
+ *  - No I/O: the library never touches stdio. The caller provides a
+ *    line-reading callback.
+ *  - Pull parser API: the caller repeatedly calls siml_next() to obtain
+ *    events.
+ *  - Designed to be usable on embedded systems as well as servers.
+ */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdio.h>
+#include <stddef.h> /* size_t */
 
-#ifndef SIML_MAX_LINE
-#define SIML_MAX_LINE 4096
+#ifndef SIML_MAX_KEY_LEN
+#define SIML_MAX_KEY_LEN 64
 #endif
 
-#ifndef SIML_MAX_KEY
-#define SIML_MAX_KEY 64
-#endif
+/* Error codes */
+typedef enum siml_error_code {
+    SIML_ERR_NONE = 0,
+    SIML_ERR_IO,
+    SIML_ERR_BAD_INDENT,
+    SIML_ERR_BAD_SEPARATOR,
+    SIML_ERR_BAD_KEY,
+    SIML_ERR_BAD_FIELD_SYNTAX,
+    SIML_ERR_BAD_BLOCK_HEADER,
+    SIML_ERR_BAD_BLOCK_CONTENT,
+    SIML_ERR_BAD_LIST_SYNTAX,
+    SIML_ERR_UNTERMINATED_LIST,
+    SIML_ERR_UNEXPECTED_EOF,
+    SIML_ERR_INTERNAL
+} siml_error_code;
 
-#ifndef SIML_MAX_VALUE
-#define SIML_MAX_VALUE 4096
-#endif
-
-#ifndef SIML_MAX_ERROR
-#define SIML_MAX_ERROR 256
-#endif
-
-#ifndef SIML_MAX_LIST
-#define SIML_MAX_LIST 4096
-#endif
-
-enum siml_event_type {
+/* Event types for the pull parser */
+typedef enum siml_event_type {
     SIML_EVENT_NONE = 0,
-    SIML_EVENT_BEGIN_ITEM,
-    SIML_EVENT_SCALAR,
-    SIML_EVENT_LIST_ELEMENT,
-    SIML_EVENT_LIST_EMPTY,
-    SIML_EVENT_BEGIN_LITERAL,
-    SIML_EVENT_LITERAL_LINE,
-    SIML_EVENT_END_LITERAL,
-    SIML_EVENT_ERROR,
-    SIML_EVENT_EOF
-};
+    SIML_EVENT_STREAM_START,
+    SIML_EVENT_ITEM_START,
+    SIML_EVENT_FIELD_SCALAR,
+    SIML_EVENT_FIELD_LIST_BEGIN,
+    SIML_EVENT_FIELD_LIST_ITEM,
+    SIML_EVENT_FIELD_LIST_END,
+    SIML_EVENT_FIELD_BLOCK_BEGIN,
+    SIML_EVENT_FIELD_BLOCK_LINE,
+    SIML_EVENT_FIELD_BLOCK_END,
+    SIML_EVENT_ITEM_END,
+    SIML_EVENT_STREAM_END,
+    SIML_EVENT_ERROR
+} siml_event_type;
 
-struct siml_event {
-    enum siml_event_type type;
-    int item_index;
-    long line_no;
-    const char *key;
-    const char *value;
-    const char *message;
-};
+/* String slice referencing caller-owned memory */
+typedef struct siml_slice_s {
+    const char *ptr;
+    size_t      len;
+} siml_slice;
 
-/*
- * The siml_iter object owns all storage for keys, values, and error messages
- * referenced by siml_event. Pointers in siml_event are only valid until the
- * next call to siml_next() with the same iterator, or until the iterator is
- * destroyed.
- */
-struct siml_iter;
-
-int siml_iter_init(struct siml_iter *it, FILE *fp, const char *filename);
-void siml_iter_destroy(struct siml_iter *it);
-
-/*
- * Advance the iterator by one event.
+/* Read-next-line callback: must return
+ *   >0 : success, *out_line / *out_len set
+ *    0 : end of stream (EOF)
+ *   <0 : error (SIML_ERR_IO)
  *
- * On success, returns 0 and fills *ev. ev->type is SIML_EVENT_EOF when the
- * stream is exhausted. On a parse error, the next event will be
- * SIML_EVENT_ERROR with a human-readable message, followed by SIML_EVENT_EOF.
- *
- * On API misuse (NULL arguments), returns non-zero and does not modify *ev.
+ * The returned line must NOT include the trailing newline characters.
+ * The memory must remain valid until the next call to the callback.
  */
-int siml_next(struct siml_iter *it, struct siml_event *ev);
+typedef int (*siml_read_line_fn)(void *userdata,
+                                 const char **out_line,
+                                 size_t *out_len);
 
-/* Provided for backwards compatibility; no dynamic memory is owned by ev. */
-void siml_event_cleanup(struct siml_event *ev);
+/* Event structure filled by siml_next().
+ *
+ *  - For ITEM_* and STREAM_* events, key/value are empty slices.
+ *  - For FIELD_* events, key is the field name.
+ *  - For SCALAR, LIST_ITEM and BLOCK_LINE events, value is the text.
+ *  - error_code / error_message are set only for SIML_EVENT_ERROR.
+ */
+typedef struct siml_event_s {
+    siml_event_type  type;
+    siml_slice       key;
+    siml_slice       value;
+    long             line;          /* 1-based physical line number */
+    siml_error_code  error_code;
+    const char      *error_message; /* static string; never NULL for ERROR */
+} siml_event;
+
+/* Parser mode (internal) */
+typedef enum siml_mode_e {
+    SIML_MODE_NORMAL = 0,
+    SIML_MODE_LIST,
+    SIML_MODE_BLOCK
+} siml_mode;
+
+/* Parser state */
+typedef struct siml_parser_s {
+    /* User-supplied input */
+    siml_read_line_fn read_line;
+    void             *userdata;
+
+    /* Current physical line */
+    const char       *line;
+    size_t            line_len;
+    long              line_no;
+    int               have_line;   /* boolean */
+    int               at_eof;      /* boolean */
+
+    /* High-level document state */
+    int               started;     /* STREAM_START already emitted? */
+    int               in_item;     /* currently inside an item? */
+
+    /* Current mode (normal / list / block) */
+    siml_mode         mode;
+
+    /* Field key buffer (copied from line) */
+    char              key_buf[SIML_MAX_KEY_LEN + 1];
+    size_t            key_len;
+
+    /* List parsing state */
+    size_t            list_pos;        /* index into line for list scanning */
+    int               list_first_line; /* still on the field header line? */
+
+    /* Block parsing state */
+    long              block_start_line;
+
+    /* Error state */
+    siml_error_code   error_code;
+    const char       *error_message;
+    long              error_line;
+} siml_parser;
+
+/* Initialize parser. The parser object can be stack- or statically-allocated.
+ * It does not own userdata.
+ */
+void siml_parser_init(siml_parser *p,
+                      siml_read_line_fn read_line,
+                      void *userdata);
+
+/* Reset parser to initial state but keep the same read callback and userdata. */
+void siml_parser_reset(siml_parser *p);
+
+/* Main pull API: obtain the next event from the stream.
+ *
+ * Returns the event type (same as ev->type). The sequence is:
+ *   STREAM_START, (ITEM_START, FIELD_*, ITEM_END)*, STREAM_END
+ * Errors are reported as SIML_EVENT_ERROR.
+ */
+siml_event_type siml_next(siml_parser *p, siml_event *ev);
 
 #ifdef __cplusplus
-}
+} /* extern "C" */
 #endif
 
+/* ---------------- Implementation ---------------- */
 #ifdef SIML_IMPLEMENTATION
 
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <stdarg.h>
+#include <string.h> /* strlen */
 
-#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 199901L
-int vsnprintf(char *str, size_t size, const char *format, va_list ap);
-#endif
+/* Internal helpers ------------------------------------------------------ */
 
-enum siml_state {
-    ST_OUTSIDE = 0,
-    ST_ITEM,
-    ST_BLOCK_LITERAL,
-    ST_INLINE_LIST
-};
-
-struct siml_iter {
-    FILE *fp;
-    const char *filename;
-    char line[SIML_MAX_LINE];
-    long line_no;
-    enum siml_state state;
-    int item_index;
-
-    /* pending item/field */
-    int pending_begin_item;
-    int pending_has_line;
-    long pending_line_no;
-    char pending_line[SIML_MAX_LINE];
-
-    /* list state */
-    char list_key[SIML_MAX_KEY];
-    char list_buffer[SIML_MAX_LIST];
-    size_t list_buffer_len;
-    long list_start_line;
-    const char *list_cursor;
-    int list_emitting;
-
-    /* literal block state */
-    char literal_key[SIML_MAX_KEY];
-
-    /* output buffers (owned by iterator) */
-    char key_buf[SIML_MAX_KEY];
-    char value_buf[SIML_MAX_VALUE];
-    char err_buf[SIML_MAX_ERROR];
-
-    /* error / eof state */
-    int have_error;
-    long error_line_no;
-    int finished;
-};
-
-/* Backwards-compatible no-op: events own no dynamic memory. */
-void
-siml_event_cleanup(struct siml_event *ev)
-{
-    if (!ev) {
-        return;
-    }
-    memset(ev, 0, sizeof(*ev));
+static int siml_is_alpha(char c) {
+    return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
 }
 
-static int
-siml_debug_enabled(void)
-{
-    static int initialized = 0;
-    static int enabled = 0;
-
-    if (!initialized) {
-        const char *env = getenv("DEBUG");
-        enabled = (env && env[0] != '\0');
-        initialized = 1;
-    }
-    return enabled;
+static int siml_is_digit(char c) {
+    return (c >= '0' && c <= '9');
 }
 
-static void
-siml_debugf(const char *fmt, ...)
-{
-    va_list ap;
-
-    if (!siml_debug_enabled()) {
-        return;
-    }
-
-    fputs("[siml] ", stderr);
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
-    fputc('\n', stderr);
+static int siml_is_key_char(char c) {
+    return siml_is_alpha(c) || siml_is_digit(c) || c == '_' || c == '-' || c == '.';
 }
 
-static void
-siml_trim_newline(char *s)
-{
-    size_t len;
-
-    if (!s) {
-        return;
+static int siml_is_blank_line(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; ++i) {
+        if (s[i] != ' ') return 0;
     }
+    return 1;
+}
 
-    len = strlen(s);
-    while (len > 0 && (s[len - 1] == '\n' || s[len - 1] == '\r')) {
-        s[--len] = '\0';
+static int siml_is_comment_line(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; ++i) {
+        if (s[i] == ' ') continue;
+        return (s[i] == '#');
+    }
+    return 0;
+}
+
+static int siml_is_doc_separator(const char *s, size_t len) {
+    size_t i = 0;
+    while (i < len && s[i] == ' ') {
+        ++i;
+    }
+    if (i + 3 > len) return 0;
+    if (s[i] != '-' || s[i+1] != '-' || s[i+2] != '-') return 0;
+    i += 3;
+    while (i < len && s[i] == ' ') {
+        ++i;
+    }
+    if (i == len) return 1;
+    if (s[i] != '#') return 0;
+    return 1;
+}
+
+static void siml_set_error(siml_parser *p, siml_error_code code,
+                           const char *msg) {
+    if (p->error_code == SIML_ERR_NONE) {
+        p->error_code    = code;
+        p->error_message = msg;
+        p->error_line    = p->line_no;
     }
 }
 
-static void
-siml_rstrip_spaces(char *s)
-{
-    size_t len;
-
-    if (!s) {
-        return;
-    }
-
-    len = strlen(s);
-    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t')) {
-        s[--len] = '\0';
-    }
+static void siml_clear_event(siml_event *ev) {
+    ev->type          = SIML_EVENT_NONE;
+    ev->key.ptr       = 0;
+    ev->key.len       = 0;
+    ev->value.ptr     = 0;
+    ev->value.len     = 0;
+    ev->line          = 0;
+    ev->error_code    = SIML_ERR_NONE;
+    ev->error_message = 0;
 }
 
-static char *
-siml_lskip_spaces(char *s)
-{
-    if (!s) {
-        return s;
-    }
-
-    while (*s == ' ' || *s == '\t') {
-        s++;
-    }
+static siml_slice siml_make_slice(const char *p, size_t len) {
+    siml_slice s;
+    s.ptr = p;
+    s.len = len;
     return s;
 }
 
-static int
-siml_is_blank(const char *s)
-{
-    const char *p = s;
-
-    if (!p) {
-        return 1;
-    }
-
-    while (*p == ' ' || *p == '\t') {
-        p++;
-    }
-    return *p == '\0';
-}
-
-static int
-siml_is_comment(const char *s)
-{
-    const char *p = s;
-
-    if (!p) {
-        return 0;
-    }
-
-    while (*p == ' ' || *p == '\t') {
-        p++;
-    }
-    return *p == '#';
-}
-
-static int
-siml_is_doc_separator(const char *line)
-{
-    const char *p;
-
-    if (!line) {
-        return 0;
-    }
-
-    if (!(line[0] == '-' && line[1] == '-' && line[2] == '-')) {
-        return 0;
-    }
-
-    p = line + 3;
-    if (*p == '\0') {
-        return 1;
-    }
-    while (*p == ' ' || *p == '\t') {
-        p++;
-    }
-    return (*p == '\0' || *p == '#');
-}
-
-static int
-siml_is_valid_key(const char *key)
-{
-    const unsigned char *p = (const unsigned char *) key;
-
-    if (!p || *p == '\0') {
-        return 0;
-    }
-    if (!isalpha(*p) && *p != '_') {
-        return 0;
-    }
-    p++;
-    while (*p) {
-        if (!isalnum(*p) && *p != '_' && *p != '-' && *p != '.') {
-            return 0;
-        }
-        p++;
-    }
-    return 1;
-}
-
-static int
-siml_is_valid_key_span(const char *start, size_t len)
-{
-    size_t i;
-
-    if (!start || len == 0) {
-        return 0;
-    }
-    if (!isalpha((unsigned char) start[0]) && start[0] != '_') {
-        return 0;
-    }
-    for (i = 1; i < len; i++) {
-        unsigned char c = (unsigned char) start[i];
-
-        if (!isalnum(c) && c != '_' && c != '-' && c != '.') {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static int
-siml_is_field_line(struct siml_iter *p,
-                   const char *line,
-                   int indent,
-                   int *body_offset)
-{
-    const char *body;
-    const char *colon;
-    const char *key_end;
-
-    (void) p;
-
-    if (indent != 0) {
-        return 0;
-    }
-
-    body = line + indent;
-    if (siml_is_blank(body) || siml_is_comment(body)) {
-        return 0;
-    }
-
-    colon = strchr(body, ':');
-    if (!colon) {
-        return 0;
-    }
-
-    key_end = colon;
-    while (key_end > body &&
-           (key_end[-1] == ' ' || key_end[-1] == '\t')) {
-        key_end--;
-    }
-    if (key_end == body) {
-        return 0;
-    }
-
-    if (!siml_is_valid_key_span(body, (size_t) (key_end - body))) {
-        return 0;
-    }
-
-    if (body_offset) {
-        *body_offset = indent;
-    }
-    return 1;
-}
-
-static int
-siml_fail(struct siml_iter *p, long line_no, const char *fmt, ...)
-{
-    va_list ap;
-
-    if (!p) {
-        return 1;
-    }
-
-    p->have_error = 1;
-    p->error_line_no = line_no;
-
-    if (fmt && p->err_buf[0] == '\0') {
-        va_start(ap, fmt);
-        (void) vsnprintf(p->err_buf, sizeof(p->err_buf), fmt, ap);
-        va_end(ap);
-    }
-
-    siml_debugf("%s", p->err_buf[0] ? p->err_buf : "siml_fail");
-
-    return 0;
-}
-
-static void
-siml_reset_list_state(struct siml_iter *p)
-{
-    p->list_buffer_len = 0;
-    p->list_buffer[0] = '\0';
-    p->list_start_line = 0;
-    p->list_cursor = NULL;
-    p->list_emitting = 0;
-    p->list_key[0] = '\0';
-}
-
-static int
-siml_list_append(struct siml_iter *p, const char *text)
-{
+/* Fetch next physical line into parser->line/line_len. Returns:
+ *   1 on success, 0 on EOF, -1 on IO error.
+ */
+static int siml_fetch_line(siml_parser *p) {
+    const char *line;
     size_t len;
+    int rc;
 
-    if (!text) {
+    if (p->at_eof) {
+        p->have_line = 0;
         return 0;
     }
-
-    len = strlen(text);
-    if (len == 0) {
-        return 0;
-    }
-
-    if (p->list_buffer_len + len >= SIML_MAX_LIST) {
-        return siml_fail(p, p->list_start_line ? p->list_start_line : p->line_no,
-                         "%s:%ld: list for key '%s' too long",
-                         p->filename,
-                         p->list_start_line ? p->list_start_line : p->line_no,
-                         p->list_key[0] ? p->list_key : "<list>");
-    }
-
-    memcpy(p->list_buffer + p->list_buffer_len, text, len);
-    p->list_buffer_len += len;
-    p->list_buffer[p->list_buffer_len] = '\0';
-    return 0;
-}
-
-static int
-siml_init_list_from_string(struct siml_iter *p,
-                           const char *key,
-                           const char *inside,
-                           long line_no)
-{
-    size_t key_len;
-    size_t len;
-
-    if (!p || !key || !inside) {
+    rc = p->read_line(p->userdata, &line, &len);
+    if (rc > 0) {
+        p->line      = line;
+        p->line_len  = len;
+        p->have_line = 1;
+        p->line_no  += 1;
         return 1;
     }
-
-    key_len = strlen(key);
-    if (key_len >= sizeof(p->list_key)) {
-        return siml_fail(p, line_no,
-                         "%s:%ld: list key too long '%s'",
-                         p->filename, line_no, key);
-    }
-    memcpy(p->list_key, key, key_len + 1);
-
-    len = strlen(inside);
-    if (len >= SIML_MAX_LIST) {
-        return siml_fail(p, line_no,
-                         "%s:%ld: list for key '%s' too long",
-                         p->filename, line_no, key);
-    }
-    memcpy(p->list_buffer, inside, len + 1);
-    p->list_buffer_len = len;
-    p->list_start_line = line_no;
-    p->list_cursor = NULL;
-    p->list_emitting = 1;
-
-    siml_debugf("%s:%ld: begin list key='%s'", p->filename, line_no, key);
-
-    return 0;
-}
-
-static int
-siml_emit_next_list_element(struct siml_iter *p, struct siml_event *ev)
-{
-    char *elem;
-
-    if (!p || !ev) {
-        return 1;
-    }
-
-    if (!p->list_emitting) {
-        return 1;
-    }
-
-    if (!p->list_cursor) {
-        p->list_cursor = siml_lskip_spaces(p->list_buffer);
-        if (*(p->list_cursor) == '\0') {
-            /* empty list */
-            ev->type = SIML_EVENT_LIST_EMPTY;
-            ev->item_index = p->item_index;
-            ev->line_no = p->list_start_line;
-            ev->key = p->list_key;
-            ev->value = NULL;
-            ev->message = NULL;
-
-            siml_debugf("%s:%ld: emit empty list for key='%s'",
-                        p->filename,
-                        p->list_start_line,
-                        p->list_key);
-
-            p->list_emitting = 0;
-            p->list_cursor = NULL;
-            siml_reset_list_state(p);
-            return 0;
-        }
-    }
-
-    elem = (char *) p->list_cursor;
-    if (*elem == '\0') {
-        p->list_emitting = 0;
-        p->list_cursor = NULL;
-        siml_reset_list_state(p);
-        return 1;
-    }
-
-    {
-        char *comma = strchr(elem, ',');
-        char *next;
-
-        if (comma) {
-            *comma = '\0';
-            next = comma + 1;
-        } else {
-            next = elem + strlen(elem);
-        }
-
-        siml_rstrip_spaces(elem);
-        if (*elem == '\0') {
-            /* empty list element */
-            siml_fail(p,
-                      p->list_start_line,
-                      "%s:%ld: empty list element in key '%s'",
-                      p->filename,
-                      p->list_start_line,
-                      p->list_key[0] ? p->list_key : "<list>");
-            p->list_emitting = 0;
-            p->list_cursor = NULL;
-            siml_reset_list_state(p);
-            return -1;
-        }
-
-        if (strlen(elem) >= sizeof(p->value_buf)) {
-            siml_fail(p,
-                      p->list_start_line,
-                      "%s:%ld: list element too long in key '%s'",
-                      p->filename,
-                      p->list_start_line,
-                      p->list_key);
-            p->list_emitting = 0;
-            p->list_cursor = NULL;
-            siml_reset_list_state(p);
-            return -1;
-        }
-
-        memcpy(p->value_buf, elem, strlen(elem) + 1);
-
-        ev->type = SIML_EVENT_LIST_ELEMENT;
-        ev->item_index = p->item_index;
-        ev->line_no = p->list_start_line;
-        ev->key = p->list_key;
-        ev->value = p->value_buf;
-        ev->message = NULL;
-
-        siml_debugf("%s:%ld: emit list element key='%s' value='%s'",
-                    p->filename,
-                    p->list_start_line,
-                    p->list_key,
-                    p->value_buf);
-
-        p->list_cursor = siml_lskip_spaces(next);
-        if (*p->list_cursor == '\0') {
-            p->list_emitting = 0;
-            p->list_cursor = NULL;
-            siml_reset_list_state(p);
-        }
-
+    if (rc == 0) {
+        p->at_eof    = 1;
+        p->have_line = 0;
         return 0;
     }
-}
-
-static int
-siml_handle_field_line(struct siml_iter *p,
-                       char *body,
-                       long line_no,
-                       struct siml_event *ev)
-{
-    char *colon;
-    char *key;
-    char *value;
-    size_t key_len;
-
-    siml_rstrip_spaces(body);
-
-    colon = strchr(body, ':');
-    if (!colon) {
-        return siml_fail(p, line_no,
-                         "%s:%ld: missing ':' in field",
-                         p->filename, line_no);
-    }
-
-    *colon = '\0';
-    key = body;
-    siml_rstrip_spaces(key);
-
-    if (!siml_is_valid_key(key)) {
-        return siml_fail(p, line_no,
-                         "%s:%ld: invalid key '%s'",
-                         p->filename, line_no, key);
-    }
-
-    key_len = strlen(key);
-    if (key_len >= sizeof(p->key_buf)) {
-        return siml_fail(p, line_no,
-                         "%s:%ld: key too long '%s'",
-                         p->filename, line_no, key);
-    }
-    memcpy(p->key_buf, key, key_len + 1);
-
-    value = colon + 1;
-    if (*value == ' ') {
-        value++;
-    } else if (*value != '\0') {
-        return siml_fail(p, line_no,
-                         "%s:%ld: expected space after ':' in field '%s'",
-                         p->filename, line_no, key);
-    }
-
-    /* literal block */
-    if (value[0] == '|') {
-        size_t lit_len = strlen(key);
-
-        if (lit_len >= sizeof(p->literal_key)) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: literal block key too long '%s'",
-                             p->filename, line_no, key);
-        }
-        memcpy(p->literal_key, key, lit_len + 1);
-        p->state = ST_BLOCK_LITERAL;
-
-        ev->type = SIML_EVENT_BEGIN_LITERAL;
-        ev->item_index = p->item_index;
-        ev->line_no = line_no;
-        ev->key = p->literal_key;
-        ev->value = NULL;
-        ev->message = NULL;
-
-        siml_debugf("%s:%ld: begin literal key='%s'",
-                    p->filename, line_no, p->literal_key);
-
-        return 0;
-    }
-
-    /* list value */
-    if (value[0] == '[') {
-        char *closing;
-        char *p_char;
-
-        closing = strrchr(value, ']');
-        if (closing) {
-            p_char = closing + 1;
-            while (*p_char == ' ' || *p_char == '\t') {
-                p_char++;
-            }
-            if (*p_char != '\0' && *p_char != '#') {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: unexpected text after list for key '%s'",
-                                 p->filename, line_no, key);
-            }
-            *closing = '\0';
-            siml_rstrip_spaces(value);
-
-            if (siml_init_list_from_string(p,
-                                           key,
-                                           value + 1,
-                                           line_no) != 0) {
-                return -1;
-            }
-
-            /* emit first list event immediately */
-            if (siml_emit_next_list_element(p, ev) == 0) {
-                return 0;
-            }
-            return -1;
-        } else {
-            /* multi-line list */
-            siml_reset_list_state(p);
-            p->list_start_line = line_no;
-
-            if (siml_list_append(p, value + 1) != 0) {
-                return -1;
-            }
-
-            p->state = ST_INLINE_LIST;
-
-            siml_debugf("%s:%ld: begin multiline list key='%s'",
-                        p->filename, line_no, key);
-
-            return 0;
-        }
-    }
-
-    /* scalar */
-    {
-        char *hash_scan = value;
-        char *closing_hash = NULL;
-        char last = '\0';
-
-        while (*hash_scan) {
-            if (*hash_scan == '#' &&
-                (last == ' ' || last == '\t')) {
-                closing_hash = hash_scan;
-                break;
-            }
-            last = *hash_scan;
-            hash_scan++;
-        }
-        if (closing_hash) {
-            *closing_hash = '\0';
-        }
-
-        siml_rstrip_spaces(value);
-
-        if (strlen(value) >= sizeof(p->value_buf)) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: scalar value too long for key '%s'",
-                             p->filename, line_no, key);
-        }
-        memcpy(p->value_buf, value, strlen(value) + 1);
-
-        ev->type = SIML_EVENT_SCALAR;
-        ev->item_index = p->item_index;
-        ev->line_no = line_no;
-        ev->key = p->key_buf;
-        ev->value = p->value_buf;
-        ev->message = NULL;
-
-        siml_debugf("%s:%ld: scalar key='%s' value='%s'",
-                    p->filename, line_no, p->key_buf, p->value_buf);
-
-        return 0;
-    }
-}
-
-static int
-siml_handle_toplevel_line(struct siml_iter *p,
-                          char *line,
-                          long line_no,
-                          struct siml_event *ev)
-{
-    char *p_line = siml_lskip_spaces(line);
-    int indent = (int) (p_line - line);
-    int body_offset = 0;
-
-    if (siml_is_blank(p_line) || siml_is_comment(p_line)) {
-        return 0;
-    }
-
-    if (siml_is_doc_separator(line)) {
-        siml_debugf("%s:%ld: doc separator", p->filename, line_no);
-        p->state = ST_OUTSIDE;
-        return 0;
-    }
-
-    if (!siml_is_field_line(p, line, indent, &body_offset)) {
-        if (p->state == ST_OUTSIDE) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: expected field at column 0 to start document (use '---' between documents)",
-                             p->filename, line_no);
-        } else {
-            return siml_fail(p, line_no,
-                             "%s:%ld: expected field at column 0",
-                             p->filename, line_no);
-        }
-    }
-
-    if (p->state == ST_OUTSIDE) {
-        size_t len;
-
-        p->item_index++;
-        p->state = ST_ITEM;
-        p->pending_begin_item = 1;
-
-        len = strlen(line + body_offset);
-        if (len >= sizeof(p->pending_line)) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: field line too long",
-                             p->filename, line_no);
-        }
-        memcpy(p->pending_line, line + body_offset, len + 1);
-        p->pending_line_no = line_no;
-        p->pending_has_line = 1;
-
-        siml_debugf("%s:%ld: begin item %d",
-                    p->filename, line_no, p->item_index);
-
-        return 0;
-    }
-
-    /* ST_ITEM: parse field immediately */
-    return siml_handle_field_line(p, line + body_offset, line_no, ev);
-}
-
-static int
-siml_handle_literal_line(struct siml_iter *p,
-                         char *line,
-                         long line_no,
-                         struct siml_event *ev)
-{
-    char *bp = line;
-    int indent = 0;
-    char *s;
-
-    if (siml_is_doc_separator(line)) {
-        p->state = ST_OUTSIDE;
-
-        ev->type = SIML_EVENT_END_LITERAL;
-        ev->item_index = p->item_index;
-        ev->line_no = line_no;
-        ev->key = p->literal_key;
-        ev->value = NULL;
-        ev->message = NULL;
-
-        siml_debugf("%s:%ld: end literal (doc separator) key='%s'",
-                    p->filename, line_no, p->literal_key);
-
-        return 0;
-    }
-
-    while (*bp == ' ') {
-        indent++;
-        bp++;
-    }
-
-    if (indent == 0 && *bp == '#') {
-        /* top-level comment ends literal; comment itself is ignored */
-        p->state = ST_ITEM;
-
-        ev->type = SIML_EVENT_END_LITERAL;
-        ev->item_index = p->item_index;
-        ev->line_no = line_no;
-        ev->key = p->literal_key;
-        ev->value = NULL;
-        ev->message = NULL;
-
-        siml_debugf("%s:%ld: end literal (comment) key='%s'",
-                    p->filename, line_no, p->literal_key);
-
-        return 0;
-    }
-
-    {
-        int body_offset = 0;
-
-        if (siml_is_field_line(p, line, indent, &body_offset)) {
-            size_t len;
-
-            /* new field starts; close literal and re-process field later */
-            len = strlen(line + body_offset);
-            if (len >= sizeof(p->pending_line)) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: field line too long",
-                                 p->filename, line_no);
-            }
-            memcpy(p->pending_line, line + body_offset, len + 1);
-            p->pending_line_no = line_no;
-            p->pending_has_line = 1;
-
-            p->state = ST_ITEM;
-
-            ev->type = SIML_EVENT_END_LITERAL;
-            ev->item_index = p->item_index;
-            ev->line_no = line_no;
-            ev->key = p->literal_key;
-            ev->value = NULL;
-            ev->message = NULL;
-
-            siml_debugf("%s:%ld: end literal (next field) key='%s'",
-                        p->filename, line_no, p->literal_key);
-
-            return 0;
-        }
-    }
-
-    s = line;
-    while (*s == ' ') {
-        s++;
-    }
-    if (siml_is_blank(s)) {
-        /* blank line inside literal block */
-        p->value_buf[0] = '\0';
-
-        ev->type = SIML_EVENT_LITERAL_LINE;
-        ev->item_index = p->item_index;
-        ev->line_no = line_no;
-        ev->key = NULL;
-        ev->value = p->value_buf;
-        ev->message = NULL;
-
-        return 0;
-    }
-
-    if (line[0] != ' ' || line[1] != ' ') {
-        return siml_fail(p, line_no,
-                         "%s:%ld: literal block line must start with two spaces for key '%s'",
-                         p->filename, line_no, p->literal_key);
-    }
-
-    {
-        const char *text = line + 2;
-        size_t len = strlen(text);
-
-        if (len >= sizeof(p->value_buf)) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: literal line too long in key '%s'",
-                             p->filename, line_no, p->literal_key);
-        }
-        memcpy(p->value_buf, text, len + 1);
-    }
-
-    ev->type = SIML_EVENT_LITERAL_LINE;
-    ev->item_index = p->item_index;
-    ev->line_no = line_no;
-    ev->key = NULL;
-    ev->value = p->value_buf;
-    ev->message = NULL;
-
-    return 0;
-}
-
-static int
-siml_handle_inline_list_line(struct siml_iter *p,
-                             char *line,
-                             long line_no,
-                             struct siml_event *ev)
-{
-    char *p_line_in_list = siml_lskip_spaces(line);
-    int indent = (int) (p_line_in_list - line);
-    char *closing;
-    char *after;
-
-    (void) ev;
-
-    if (siml_is_doc_separator(line) ||
-        siml_is_field_line(p, line, indent, NULL)) {
-        siml_fail(p, line_no,
-                  "%s:%ld: list for key '%s' missing ']' (started at line %ld)",
-                  p->filename,
-                  line_no,
-                  p->list_key[0] ? p->list_key : "<list>",
-                  p->list_start_line ? p->list_start_line : line_no);
-        siml_reset_list_state(p);
-        p->state = ST_ITEM;
-        return -1;
-    }
-
-    closing = strrchr(line, ']');
-
-    if (!closing) {
-        if (siml_is_blank(p_line_in_list) || siml_is_comment(p_line_in_list)) {
-            return 0;
-        }
-        if (siml_list_append(p, line) != 0) {
-            p->state = ST_ITEM;
-            return -1;
-        }
-        return 0;
-    }
-
-    after = closing + 1;
-    while (*after == ' ' || *after == '\t') {
-        after++;
-    }
-    if (*after != '\0' && *after != '#') {
-        siml_fail(p, line_no,
-                  "%s:%ld: unexpected text after list for key '%s'",
-                  p->filename, line_no, p->list_key);
-        siml_reset_list_state(p);
-        p->state = ST_ITEM;
-        return -1;
-    }
-
-    *closing = '\0';
-    if (siml_list_append(p, line) != 0) {
-        p->state = ST_ITEM;
-        return -1;
-    }
-
-    /* all list text collected */
-    if (siml_init_list_from_string(p,
-                                   p->list_key,
-                                   p->list_buffer,
-                                   p->list_start_line ? p->list_start_line : line_no) != 0) {
-        siml_reset_list_state(p);
-        p->state = ST_ITEM;
-        return -1;
-    }
-
-    p->state = ST_ITEM;
-
-    /* emit first element now */
-    if (siml_emit_next_list_element(p, ev) == 0) {
-        return 0;
-    }
-
+    /* rc < 0: IO error */
+    p->have_line = 0;
+    siml_set_error(p, SIML_ERR_IO, "SIML: read_line IO error");
     return -1;
 }
 
-int
-siml_iter_init(struct siml_iter *p, FILE *fp, const char *filename)
-{
-    if (!p || !fp) {
+/* Skip blank and comment lines. Leaves the first non-blank/non-comment
+ * line in parser->line (have_line=1), or reaches EOF.
+ * Returns 1 if a line is available, 0 if EOF, -1 on error.
+ */
+static int siml_skip_blank_and_comment(siml_parser *p) {
+    int rc;
+    for (;;) {
+        if (!p->have_line) {
+            rc = siml_fetch_line(p);
+            if (rc <= 0) return rc;
+        }
+        if (p->line_len == 0 || siml_is_blank_line(p->line, p->line_len) ||
+            siml_is_comment_line(p->line, p->line_len)) {
+            p->have_line = 0;
+            continue;
+        }
         return 1;
     }
-
-    memset(p, 0, sizeof(*p));
-    p->fp = fp;
-    p->filename = filename ? filename : "<input>";
-    p->state = ST_OUTSIDE;
-    p->item_index = -1;
-    p->line_no = 0;
-
-    siml_reset_list_state(p);
-
-    return 0;
 }
 
-void
-siml_iter_destroy(struct siml_iter *p)
-{
-    (void) p;
-}
+/* Strip inline comment and trailing spaces for scalar values.
+ * Returns resulting length. Does NOT modify the underlying memory.
+ * On error (invalid characters), returns (size_t)(-1).
+ */
+static size_t siml_scalar_strip(const char *v, size_t len) {
+    size_t i;
+    size_t end = len;
 
-int
-siml_next(struct siml_iter *p, struct siml_event *ev)
-{
-    if (!p || !ev) {
-        return 1;
+    /* Look for inline comment start (space before #). */
+    for (i = 0; i < len; ++i) {
+        char c = v[i];
+        if (c == '#') {
+            if (i > 0 && v[i-1] == ' ') {
+                end = i - 1; /* strip space before # */
+                break;
+            }
+        } else if (c == ',' || c == ']') {
+            return (size_t)(-1); /* invalid inside scalar */
+        }
     }
 
-    memset(ev, 0, sizeof(*ev));
-    ev->type = SIML_EVENT_NONE;
-    ev->item_index = p->item_index;
-    ev->line_no = p->line_no;
-    ev->key = NULL;
-    ev->value = NULL;
-    ev->message = NULL;
+    if (end == len) {
+        end = len;
+    }
+    /* Trim trailing spaces */
+    while (end > 0 && v[end-1] == ' ') {
+        --end;
+    }
+
+    if (end == 0) {
+        /* Empty scalars are not allowed by the SIML spec */
+        return (size_t)(-1);
+    }
+
+    return end;
+}
+
+/* Parser public functions ----------------------------------------------- */
+
+void siml_parser_init(siml_parser *p,
+                      siml_read_line_fn read_line,
+                      void *userdata) {
+    if (!p) return;
+    p->read_line = read_line;
+    p->userdata  = userdata;
+    p->line      = 0;
+    p->line_len  = 0;
+    p->line_no   = 0;
+    p->have_line = 0;
+    p->at_eof    = 0;
+    p->started   = 0;
+    p->in_item   = 0;
+    p->mode      = SIML_MODE_NORMAL;
+    p->key_buf[0] = '\0';
+    p->key_len   = 0;
+    p->list_pos  = 0;
+    p->list_first_line = 0;
+    p->block_start_line = 0;
+    p->error_code = SIML_ERR_NONE;
+    p->error_message = 0;
+    p->error_line = 0;
+}
+
+void siml_parser_reset(siml_parser *p) {
+    if (!p) return;
+    p->line      = 0;
+    p->line_len  = 0;
+    p->line_no   = 0;
+    p->have_line = 0;
+    p->at_eof    = 0;
+    p->started   = 0;
+    p->in_item   = 0;
+    p->mode      = SIML_MODE_NORMAL;
+    p->key_buf[0] = '\0';
+    p->key_len   = 0;
+    p->list_pos  = 0;
+    p->list_first_line = 0;
+    p->block_start_line = 0;
+    p->error_code = SIML_ERR_NONE;
+    p->error_message = 0;
+    p->error_line = 0;
+}
+
+/* Forward declarations of internal state handlers */
+static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev);
+static siml_event_type siml_next_list(siml_parser *p, siml_event *ev);
+static siml_event_type siml_next_block(siml_parser *p, siml_event *ev);
+
+siml_event_type siml_next(siml_parser *p, siml_event *ev) {
+    siml_event_type t;
+
+    if (!p || !ev) return SIML_EVENT_ERROR;
+
+    siml_clear_event(ev);
+
+    if (p->error_code != SIML_ERR_NONE) {
+        ev->type          = SIML_EVENT_ERROR;
+        ev->error_code    = p->error_code;
+        ev->error_message = p->error_message;
+        ev->line          = p->error_line;
+        return ev->type;
+    }
+
+    if (!p->started) {
+        p->started = 1;
+        ev->type   = SIML_EVENT_STREAM_START;
+        ev->line   = 0;
+        return ev->type;
+    }
+
+    if (p->mode == SIML_MODE_LIST) {
+        t = siml_next_list(p, ev);
+    } else if (p->mode == SIML_MODE_BLOCK) {
+        t = siml_next_block(p, ev);
+    } else {
+        t = siml_next_normal(p, ev);
+    }
+
+    if (t == SIML_EVENT_ERROR && p->error_code != SIML_ERR_NONE) {
+        ev->error_code    = p->error_code;
+        ev->error_message = p->error_message;
+        if (ev->line == 0) ev->line = p->error_line;
+    }
+    return t;
+}
+
+/* Normal mode: not inside list or block. */
+static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
+    int rc;
+
+    /* If we are inside an item and already hit EOF and have no line,
+     * then the item ends here.
+     */
+    if (p->in_item && p->at_eof && !p->have_line) {
+        p->in_item = 0;
+        ev->type = SIML_EVENT_ITEM_END;
+        ev->line = p->line_no;
+        return ev->type;
+    }
+
+    /* Find the next non-blank/non-comment line. */
+    rc = siml_skip_blank_and_comment(p);
+    if (rc < 0) {
+        return SIML_EVENT_ERROR;
+    }
+    if (rc == 0) {
+        /* EOF */
+        if (p->in_item) {
+            p->in_item = 0;
+            ev->type = SIML_EVENT_ITEM_END;
+            ev->line = p->line_no;
+            return ev->type;
+        }
+        ev->type = SIML_EVENT_STREAM_END;
+        ev->line = p->line_no;
+        return ev->type;
+    }
+
+    /* Now we have a non-blank, non-comment line. */
+    if (siml_is_doc_separator(p->line, p->line_len)) {
+        /* Separator line */
+        p->have_line = 0; /* consume it */
+        if (p->in_item) {
+            p->in_item = 0;
+            ev->type = SIML_EVENT_ITEM_END;
+            ev->line = p->line_no;
+            return ev->type;
+        } else {
+            /* Separator while already between items: ignore and look again. */
+            return siml_next_normal(p, ev);
+        }
+    }
+
+    /* At this point, the line must be a field. If we are not yet in an item,
+     * then this starts a new item and we emit ITEM_START first, without
+     * consuming the line.
+     */
+    if (!p->in_item) {
+        p->in_item = 1;
+        ev->type = SIML_EVENT_ITEM_START;
+        ev->line = p->line_no;
+        return ev->type;
+    }
+
+    /* Parse field line in current item. */
+    {
+        const char *s = p->line;
+        size_t len = p->line_len;
+        size_t i = 0;
+        size_t key_start = 0;
+        size_t key_end = 0;
+        size_t k;
+
+        if (len == 0 || s[0] == ' ' || s[0] == '\t') {
+            siml_set_error(p, SIML_ERR_BAD_INDENT, "SIML: field must start at column 0");
+            return SIML_EVENT_ERROR;
+        }
+
+        /* Parse key */
+        if (!siml_is_alpha(s[0]) && s[0] != '_') {
+            siml_set_error(p, SIML_ERR_BAD_KEY, "SIML: invalid key start");
+            return SIML_EVENT_ERROR;
+        }
+        i = 1;
+        while (i < len && siml_is_key_char(s[i])) {
+            ++i;
+        }
+        key_start = 0;
+        key_end = i;
+
+        if (i >= len || s[i] != ':') {
+            siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "SIML: expected ':' after key");
+            return SIML_EVENT_ERROR;
+        }
+        ++i; /* skip ':' */
+        if (i >= len || s[i] != ' ') {
+            siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX, "SIML: expected space after 'key:'");
+            return SIML_EVENT_ERROR;
+        }
+        ++i; /* skip space after colon */
+
+        if (key_end - key_start > SIML_MAX_KEY_LEN) {
+            siml_set_error(p, SIML_ERR_BAD_KEY, "SIML: key too long");
+            return SIML_EVENT_ERROR;
+        }
+        for (k = 0; k < key_end - key_start; ++k) {
+            p->key_buf[k] = s[key_start + k];
+        }
+        p->key_buf[key_end - key_start] = '\0';
+        p->key_len = key_end - key_start;
+
+        /* Raw value text */
+        {
+            const char *v = s + i;
+            size_t vlen = (len >= i) ? (len - i) : 0;
+
+            if (vlen > 0 && v[0] == '|') {
+                /* Literal block header */
+                size_t j = 1;
+                while (j < vlen && v[j] == ' ') {
+                    ++j;
+                }
+                if (j < vlen && v[j] != '#') {
+                    siml_set_error(p, SIML_ERR_BAD_BLOCK_HEADER,
+                                   "SIML: unexpected characters after '|' block marker");
+                    return SIML_EVENT_ERROR;
+                }
+                p->mode = SIML_MODE_BLOCK;
+                p->block_start_line = p->line_no;
+                p->have_line = 0; /* content starts on the next physical line */
+
+                ev->type = SIML_EVENT_FIELD_BLOCK_BEGIN;
+                ev->key  = siml_make_slice(p->key_buf, p->key_len);
+                ev->value.ptr = 0;
+                ev->value.len = 0;
+                ev->line = p->line_no;
+                return ev->type;
+            } else if (vlen > 0 && v[0] == '[') {
+                /* List header */
+                p->mode = SIML_MODE_LIST;
+                p->list_first_line = 1;
+                p->list_pos = i; /* index in s where '[' appears */
+
+                ev->type = SIML_EVENT_FIELD_LIST_BEGIN;
+                ev->key  = siml_make_slice(p->key_buf, p->key_len);
+                ev->value.ptr = 0;
+                ev->value.len = 0;
+                ev->line = p->line_no;
+                return ev->type;
+            } else {
+                /* Scalar */
+                size_t slen;
+                slen = siml_scalar_strip(v, vlen);
+                if (slen == (size_t)(-1)) {
+                    siml_set_error(p, SIML_ERR_BAD_FIELD_SYNTAX,
+                                   "SIML: invalid scalar value");
+                    return SIML_EVENT_ERROR;
+                }
+                p->have_line = 0; /* fully consumed */
+
+                ev->type = SIML_EVENT_FIELD_SCALAR;
+                ev->key  = siml_make_slice(p->key_buf, p->key_len);
+                ev->value = siml_make_slice(v, slen);
+                ev->line = p->line_no;
+                return ev->type;
+            }
+        }
+    }
+}
+
+/* List mode: parse list items across one or more lines. */
+static int siml_fetch_list_line(siml_parser *p) {
+    int rc;
+    for (;;) {
+        rc = siml_fetch_line(p);
+        if (rc <= 0) return rc;
+        if (p->line_len == 0 || siml_is_blank_line(p->line, p->line_len) ||
+            siml_is_comment_line(p->line, p->line_len)) {
+            p->have_line = 0;
+            continue; /* skip blank/comment inside list */
+        }
+        p->list_pos = 0;
+        return 1;
+    }
+}
+
+static siml_event_type siml_next_list(siml_parser *p, siml_event *ev) {
+    const char *s;
+    size_t len;
+    size_t i;
+    size_t start;
+    size_t end;
+    int rc;
 
     for (;;) {
-        if (p->have_error) {
-            ev->type = SIML_EVENT_ERROR;
-            ev->item_index = p->item_index;
-            ev->line_no = p->error_line_no;
-            ev->key = NULL;
-            ev->value = NULL;
-            ev->message = p->err_buf[0] ? p->err_buf : "parse error";
-
-            siml_debugf("%s:%ld: emit ERROR '%s'",
-                        p->filename,
-                        p->error_line_no,
-                        ev->message);
-
-            p->have_error = 0;
-            p->finished = 1;
-            return 0;
-        }
-
-        if (p->pending_begin_item) {
-            ev->type = SIML_EVENT_BEGIN_ITEM;
-            ev->item_index = p->item_index;
-            ev->line_no = p->pending_line_no;
-            ev->key = NULL;
-            ev->value = NULL;
-            ev->message = NULL;
-
-            siml_debugf("%s:%ld: emit BEGIN_ITEM %d",
-                        p->filename,
-                        p->pending_line_no,
-                        p->item_index);
-
-            p->pending_begin_item = 0;
-            return 0;
-        }
-
-        if (p->list_emitting) {
-            int lrc = siml_emit_next_list_element(p, ev);
-
-            if (lrc == 0) {
-                return 0;
+        if (!p->have_line) {
+            if (p->list_first_line) {
+                /* Should not happen; the first line is the field header.
+                 * If it does, treat as internal error.
+                 */
+                siml_set_error(p, SIML_ERR_INTERNAL, "SIML: lost first list line");
+                return SIML_EVENT_ERROR;
             }
-            /* error case already recorded via siml_fail */
+            rc = siml_fetch_list_line(p);
+            if (rc < 0) return SIML_EVENT_ERROR;
+            if (rc == 0) {
+                siml_set_error(p, SIML_ERR_UNTERMINATED_LIST,
+                               "SIML: unterminated list before EOF");
+                return SIML_EVENT_ERROR;
+            }
+        }
+
+        s = p->line;
+        len = p->line_len;
+        i = p->list_pos;
+
+        /* First-line handling: skip up to and including '[' once. */
+        if (p->list_first_line) {
+            /* list_pos points to '[' from the header line */
+            if (i >= len || s[i] != '[') {
+                siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
+                               "SIML: list header must start with '['");
+                return SIML_EVENT_ERROR;
+            }
+            i++; /* skip '[' */
+            while (i < len && s[i] == ' ') {
+                ++i;
+            }
+            p->list_first_line = 0;
+            p->list_pos = i;
+        }
+
+        /* Skip leading spaces */
+        while (i < len && s[i] == ' ') {
+            ++i;
+        }
+
+        if (i >= len) {
+            /* Nothing more on this line; move to next line. */
+            p->have_line = 0;
+            p->list_pos = 0;
             continue;
         }
 
-        if (p->finished) {
-            ev->type = SIML_EVENT_EOF;
-            ev->item_index = p->item_index;
-            ev->line_no = p->line_no;
-            ev->key = NULL;
-            ev->value = NULL;
-            ev->message = NULL;
-            return 0;
+        /* Check for closing bracket */
+        if (s[i] == ']') {
+            size_t j = i + 1;
+            while (j < len && s[j] == ' ') {
+                ++j;
+            }
+            if (j < len && s[j] != '#') {
+                siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
+                               "SIML: unexpected characters after closing ']' in list");
+                return SIML_EVENT_ERROR;
+            }
+            /* Done with this line and list */
+            p->have_line = 0;
+            p->mode = SIML_MODE_NORMAL;
+            p->list_pos = 0;
+
+            ev->type = SIML_EVENT_FIELD_LIST_END;
+            ev->key  = siml_make_slice(p->key_buf, p->key_len);
+            ev->value.ptr = 0;
+            ev->value.len = 0;
+            ev->line = p->line_no;
+            return ev->type;
         }
 
-        {
-            char *line;
-            long line_no;
+        /* Skip full-line comment (only if first non-space is '#') */
+        if (s[i] == '#') {
+            p->have_line = 0;
+            p->list_pos = 0;
+            continue;
+        }
 
-            if (p->pending_has_line) {
-                line = p->pending_line;
-                line_no = p->pending_line_no;
-                p->pending_has_line = 0;
-            } else {
-                if (!fgets(p->line, sizeof(p->line), p->fp)) {
-                    p->line_no++;
-
-                    if (p->state == ST_BLOCK_LITERAL) {
-                        /* EOF closes literal block */
-                        p->state = ST_OUTSIDE;
-
-                        ev->type = SIML_EVENT_END_LITERAL;
-                        ev->item_index = p->item_index;
-                        ev->line_no = p->line_no;
-                        ev->key = p->literal_key;
-                        ev->value = NULL;
-                        ev->message = NULL;
-
-                        siml_debugf("%s:%ld: end literal (EOF) key='%s'",
-                                    p->filename,
-                                    p->line_no,
-                                    p->literal_key);
-
-                        return 0;
-                    }
-
-                    if (p->state == ST_INLINE_LIST) {
-                        siml_fail(p, p->line_no,
-                                  "%s:%ld: list for key '%s' missing ']' (started at line %ld)",
-                                  p->filename,
-                                  p->line_no,
-                                  p->list_key[0] ? p->list_key : "<list>",
-                                  p->list_start_line ? p->list_start_line : p->line_no);
-                        siml_reset_list_state(p);
-                        p->state = ST_ITEM;
-                        continue;
-                    }
-
-                    p->finished = 1;
-                    continue;
-                }
-
-                p->line_no++;
-                line_no = p->line_no;
-                siml_trim_newline(p->line);
-                line = p->line;
+        /* Parse list element: from i up to ',' or ']' */
+        start = i;
+        while (i < len && s[i] != ',' && s[i] != ']') {
+            if (s[i] == '\n' || s[i] == '\r') {
+                break;
             }
+            ++i;
+        }
+        end = i;
+        while (end > start && s[end-1] == ' ') {
+            --end;
+        }
+        if (end == start) {
+            /* Empty element is not allowed */
+            siml_set_error(p, SIML_ERR_BAD_LIST_SYNTAX,
+                           "SIML: empty list element");
+            return SIML_EVENT_ERROR;
+        }
 
-            if (p->state == ST_BLOCK_LITERAL) {
-                if (siml_handle_literal_line(p, line, line_no, ev) == 0 &&
-                    ev->type != SIML_EVENT_NONE) {
-                    return 0;
-                }
-                continue;
-            }
+        ev->type = SIML_EVENT_FIELD_LIST_ITEM;
+        ev->key  = siml_make_slice(p->key_buf, p->key_len);
+        ev->value = siml_make_slice(s + start, end - start);
+        ev->line = p->line_no;
 
-            if (p->state == ST_INLINE_LIST) {
-                if (siml_handle_inline_list_line(p, line, line_no, ev) == 0 &&
-                    ev->type != SIML_EVENT_NONE) {
-                    return 0;
-                }
-                continue;
-            }
+        /* Advance past delimiter (if any) but leave ']' for the next call. */
+        if (i < len && s[i] == ',') {
+            ++i;
+        }
+        p->list_pos = i;
+        return ev->type;
+    }
+}
 
-            /* ST_OUTSIDE or ST_ITEM */
-            if (siml_handle_toplevel_line(p, line, line_no, ev) == 0 &&
-                ev->type != SIML_EVENT_NONE) {
-                return 0;
-            }
+/* Block mode: parse literal block lines. */
+static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
+    int rc;
+
+    /* Need a line if we don't have one. */
+    if (!p->have_line) {
+        rc = siml_fetch_line(p);
+        if (rc < 0) return SIML_EVENT_ERROR;
+        if (rc == 0) {
+            /* EOF ends the block */
+            p->mode = SIML_MODE_NORMAL;
+            ev->type = SIML_EVENT_FIELD_BLOCK_END;
+            ev->key  = siml_make_slice(p->key_buf, p->key_len);
+            ev->value.ptr = 0;
+            ev->value.len = 0;
+            ev->line = p->block_start_line;
+            return ev->type;
         }
     }
+
+    /* Check for termination: any line whose first character is not space
+     * ends the block but is NOT consumed here. Empty lines belong to the
+     * block (they become empty lines in the resulting string).
+     */
+    if (p->line_len > 0 && p->line[0] != ' ') {
+        p->mode = SIML_MODE_NORMAL;
+        ev->type = SIML_EVENT_FIELD_BLOCK_END;
+        ev->key  = siml_make_slice(p->key_buf, p->key_len);
+        ev->value.ptr = 0;
+        ev->value.len = 0;
+        ev->line = p->block_start_line;
+        return ev->type;
+    }
+
+    /* Empty line: becomes an empty line in the resulting string. */
+    if (p->line_len == 0) {
+        ev->type = SIML_EVENT_FIELD_BLOCK_LINE;
+        ev->key  = siml_make_slice(p->key_buf, p->key_len);
+        ev->value = siml_make_slice("", 0);
+        ev->line = p->line_no;
+        p->have_line = 0; /* consume */
+        return ev->type;
+    }
+
+    /* Non-empty content line must start with exactly two spaces. */
+    if (p->line_len < 2 || p->line[0] != ' ' || p->line[1] != ' ') {
+        siml_set_error(p, SIML_ERR_BAD_BLOCK_CONTENT,
+                       "SIML: block line must start with exactly two spaces");
+        return SIML_EVENT_ERROR;
+    }
+
+    ev->type = SIML_EVENT_FIELD_BLOCK_LINE;
+    ev->key  = siml_make_slice(p->key_buf, p->key_len);
+    ev->value = siml_make_slice(p->line + 2,
+                                (p->line_len >= 2) ? (p->line_len - 2) : 0);
+    ev->line = p->line_no;
+
+    p->have_line = 0; /* consume this line */
+    return ev->type;
 }
 
 #endif /* SIML_IMPLEMENTATION */

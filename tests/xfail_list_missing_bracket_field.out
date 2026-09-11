@@ -1,0 +1,5 @@
+item 0
+  id = 'list_missing_bracket_field'
+  tags[] = 'alpha'
+  tags[] = 'beta'
+  tags[] = 'other: value'

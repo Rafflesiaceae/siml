@@ -5,13 +5,95 @@
 #define SIML_IMPLEMENTATION
 #include "siml.h"
 
+struct file_reader {
+    FILE   *fp;
+    char   *buf;
+    size_t  cap;
+};
+
+static int
+siml_file_read_line(void *userdata, const char **out_line, size_t *out_len)
+{
+    struct file_reader *r;
+    size_t len;
+    int ch;
+    size_t new_cap;
+    char *new_buf;
+    int next;
+
+    r = (struct file_reader *)userdata;
+    if (!r || !out_line || !out_len) {
+        return -1;
+    }
+    if (!r->fp) {
+        return -1;
+    }
+
+    if (r->cap == 0) {
+        r->cap = 256;
+        r->buf = (char *)malloc(r->cap);
+        if (!r->buf) {
+            return -1;
+        }
+    }
+
+    len = 0;
+    ch = EOF;
+    while ((ch = fgetc(r->fp)) != EOF) {
+        if (ch == '\n') {
+            break;
+        }
+        if (ch == '\r') {
+            /* Treat CR or CRLF as end-of-line. */
+            next = fgetc(r->fp);
+            if (next != '\n' && next != EOF) {
+                ungetc(next, r->fp);
+            }
+            break;
+        }
+        if (len + 1 >= r->cap) {
+            new_cap = r->cap * 2;
+            new_buf = (char *)realloc(r->buf, new_cap);
+            if (!new_buf) {
+                return -1;
+            }
+            r->buf = new_buf;
+            r->cap = new_cap;
+        }
+        r->buf[len++] = (char)ch;
+    }
+
+    if (ferror(r->fp)) {
+        return -1;
+    }
+    if (ch == EOF && len == 0) {
+        return 0; /* EOF */
+    }
+
+    r->buf[len] = '\0';
+    *out_line = r->buf;
+    *out_len  = len;
+    return 1;
+}
+
+static void
+print_slice(const siml_slice *s)
+{
+    if (s && s->ptr && s->len > 0) {
+        fwrite(s->ptr, 1, s->len, stdout);
+    }
+}
+
 int
 main(int argc, char **argv)
 {
     const char *filename;
     FILE *fp;
-    struct siml_iter it;
-    struct siml_event ev;
+    siml_parser parser;
+    siml_event ev;
+    struct file_reader reader;
+    int item_index;
+    int list_has_items;
     int rc;
 
     if (argc != 2) {
@@ -31,66 +113,92 @@ main(int argc, char **argv)
         }
     }
 
-    if (siml_iter_init(&it, fp, filename) != 0) {
-        fprintf(stderr, "Failed to initialize parser\n");
-        rc = 1;
-        goto done;
-    }
+    reader.fp  = fp;
+    reader.buf = NULL;
+    reader.cap = 0;
 
-    memset(&ev, 0, sizeof(ev));
+    siml_parser_init(&parser, siml_file_read_line, &reader);
+
+    item_index = -1;
+    list_has_items = 0;
     rc = 0;
     while (1) {
-        if (siml_next(&it, &ev) != 0) {
-            fprintf(stderr, "Failed to read next event\n");
+        siml_event_type t;
+        t = siml_next(&parser, &ev);
+        if (t == SIML_EVENT_ERROR) {
+            fprintf(stderr, "SIML error at line %ld: %s\n",
+                    ev.line, ev.error_message ? ev.error_message : "parse error");
             rc = 1;
             break;
         }
-        if (ev.type == SIML_EVENT_EOF) {
-            siml_event_cleanup(&ev);
-            break;
-        }
-        if (ev.type == SIML_EVENT_ERROR) {
-            fprintf(stderr, "%s\n",
-                    ev.message ? ev.message : "parse error");
-            siml_event_cleanup(&ev);
-            rc = 1;
+        if (t == SIML_EVENT_STREAM_END) {
             break;
         }
 
-        switch (ev.type) {
-        case SIML_EVENT_BEGIN_ITEM:
-            if (ev.item_index > 0) {
+        switch (t) {
+        case SIML_EVENT_ITEM_START:
+            item_index += 1;
+            if (item_index > 0) {
                 printf("\n");
             }
-            printf("item %d\n", ev.item_index);
+            printf("item %d\n", item_index);
             break;
-        case SIML_EVENT_SCALAR:
-            printf("  %s = '%s'\n", ev.key, ev.value);
+
+        case SIML_EVENT_FIELD_SCALAR:
+            printf("  ");
+            print_slice(&ev.key);
+            printf(" = '");
+            print_slice(&ev.value);
+            printf("'\n");
             break;
-        case SIML_EVENT_LIST_ELEMENT:
-            printf("  %s[] = '%s'\n", ev.key, ev.value);
+
+        case SIML_EVENT_FIELD_LIST_BEGIN:
+            list_has_items = 0;
             break;
-        case SIML_EVENT_LIST_EMPTY:
-            printf("  %s[] = ''\n", ev.key);
+
+        case SIML_EVENT_FIELD_LIST_ITEM:
+            list_has_items = 1;
+            printf("  ");
+            print_slice(&ev.key);
+            printf("[] = '");
+            print_slice(&ev.value);
+            printf("'\n");
             break;
-        case SIML_EVENT_BEGIN_LITERAL:
-            printf("  %s = '''\n", ev.key);
+
+        case SIML_EVENT_FIELD_LIST_END:
+            if (!list_has_items) {
+                printf("  ");
+                print_slice(&ev.key);
+                printf("[] = ''\n");
+            }
             break;
-        case SIML_EVENT_LITERAL_LINE:
-            printf("%s\n", ev.value ? ev.value : "");
+
+        case SIML_EVENT_FIELD_BLOCK_BEGIN:
+            printf("  ");
+            print_slice(&ev.key);
+            printf(" = '''\n");
             break;
-        case SIML_EVENT_END_LITERAL:
+
+        case SIML_EVENT_FIELD_BLOCK_LINE:
+            print_slice(&ev.value);
+            printf("\n");
+            break;
+
+        case SIML_EVENT_FIELD_BLOCK_END:
             printf("'''\n");
             break;
+
+        case SIML_EVENT_ITEM_END:
+        case SIML_EVENT_STREAM_START:
+        case SIML_EVENT_NONE:
+            break;
+
         default:
             break;
         }
-        siml_event_cleanup(&ev);
     }
 
-    siml_iter_destroy(&it);
-
-done:
+    free(reader.buf);
     if (fp != stdin) {
         fclose(fp);
     }

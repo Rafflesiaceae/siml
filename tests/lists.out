@@ -1,0 +1,11 @@
+item 0
+  id = 'list_demo'
+  scalars = 'foo'
+  list1[] = 'a'
+  list1[] = 'b'
+  list1[] = 'c'
+  list2[] = 'single'
+  list3[] = ''
+  description = '''
+list demo
+'''
