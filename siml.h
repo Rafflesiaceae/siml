@@ -150,13 +150,14 @@ typedef struct siml_slice_s {
 } siml_slice;
 
 /* Read-next-line callback: must return
- *   >0 : success, *out_line / *out_len set
- *    2 : final line without LF (error)
- *    0 : end of stream (EOF)
- *   <0 : error
+ *   1  : success, *out_line / *out_len set (line does NOT include the LF)
+ *   2  : final line read successfully but it had no terminating LF --
+ *        the parser treats this as an error per the SIML spec; set
+ *        *out_line / *out_len to the partial line before returning 2
+ *   0  : end of stream (EOF, no more bytes)
+ *  <0  : I/O error
  *
- * The returned line must NOT include the trailing newline.
- * The memory must remain valid until the next call to the callback.
+ * The returned pointer must remain valid until the next call to the callback.
  */
 typedef int (*siml_read_line_fn)(void *userdata,
                                  const char **out_line,
@@ -923,7 +924,6 @@ void siml_parser_reset(siml_parser *p) {
     p->at_eof    = 0;
     p->have_peek = 0;
     p->peek_len = 0;
-    p->peek_buf[0] = '\0';
     p->line_cr_code = SIML_ERR_NONE;
     p->started   = 0;
     p->in_document = 0;
@@ -933,7 +933,6 @@ void siml_parser_reset(siml_parser *p) {
     p->depth     = 0;
     p->pending_kind = SIML_PENDING_NONE;
     p->pending_indent = 0;
-    p->pending_key[0] = '\0';
     p->pending_key_len = 0;
     p->inline_sequence_item = 0;
     p->inline_sequence_indent = 0;
@@ -942,21 +941,14 @@ void siml_parser_reset(siml_parser *p) {
     p->pending_doc_end = 0;
     p->pending_doc_start = 0;
     p->pending_container_start = 0;
-    p->pending_container_key[0] = '\0';
     p->pending_container_key_len = 0;
     p->pending_stream_end = 0;
     p->flow_depth = 0;
-    p->flow_stack_start[0] = 0;
-    p->flow_stack_end[0] = 0;
-    p->flow_stack_pos[0] = 0;
-    p->flow_stack_started[0] = 0;
-    p->flow_key[0] = '\0';
     p->flow_key_len = 0;
     p->flow_inline_spaces = 0;
     p->flow_inline_comment = 0;
     p->flow_inline_comment_len = 0;
     p->block_indent = 0;
-    p->block_key[0] = '\0';
     p->block_key_len = 0;
     p->block_inline_spaces = 0;
     p->block_inline_comment = 0;
