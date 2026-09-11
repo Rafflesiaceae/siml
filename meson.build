@@ -9,5 +9,14 @@ parser_dep = declare_dependency(
   include_directories: include_directories('.'),
 )
 
-executable('siml-dump', 'siml-dump.c', dependencies: parser_dep)
-executable('siml-roundtrip', 'siml-roundtrip.c', dependencies: parser_dep)
+siml_dump = executable('siml-dump', 'siml-dump.c', dependencies: parser_dep)
+siml_roundtrip = executable('siml-roundtrip', 'siml-roundtrip.c', dependencies: parser_dep)
+
+py = import('python').find_installation()
+
+test(
+  'integration',
+  py,
+  args: files('tests/integration/test_basic.py'),
+  depends: [siml_dump, siml_roundtrip],
+)
