@@ -95,6 +95,7 @@ typedef enum siml_error_code {
     SIML_ERR_INLINE_VALUE_EMPTY,
     SIML_ERR_INLINE_VALUE_TOO_LONG,
     SIML_ERR_SCALAR_STARTS_WITH_PIPE,
+    SIML_ERR_SCALAR_STARTS_WITH_HASH,
     SIML_ERR_FLOW_MULTI_LINE,
     SIML_ERR_FLOW_UNTERMINATED,
     SIML_ERR_FLOW_UNTERMINATED_SAME_LINE,
@@ -104,6 +105,8 @@ typedef enum siml_error_code {
     SIML_ERR_FLOW_EMPTY_ELEM,
     SIML_ERR_FLOW_TRAILING_COMMA,
     SIML_ERR_FLOW_ATOM_TOO_LONG,
+    SIML_ERR_FLOW_SCALAR_STARTS_WITH_PIPE,
+    SIML_ERR_FLOW_SCALAR_STARTS_WITH_HASH,
     SIML_ERR_BLOCK_EMPTY,
     SIML_ERR_BLOCK_WRONG_INDENT,
     SIML_ERR_BLOCK_LEADING_BLANK,
@@ -1256,6 +1259,12 @@ static siml_event_type siml_handle_inline_value(siml_parser *p, siml_event *ev,
                                ic_spaces, ic_ptr, ic_len);
     }
 
+    if (p->line[value_start] == '#') {
+        siml_set_error(p, SIML_ERR_SCALAR_STARTS_WITH_HASH,
+                       "scalar must not start with '#'");
+        return SIML_EVENT_ERROR;
+    }
+
     ev->type = SIML_EVENT_SCALAR;
     if (key_len > 0) {
         ev->key = siml_make_slice(key, key_len);
@@ -1370,8 +1379,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
         }
 
         if (s[pos] == '#') {
-            siml_set_error(p, SIML_ERR_FLOW_INLINE_COMMENT,
-                           "inline comments not allowed inside flow sequence");
+            siml_set_error(p, SIML_ERR_FLOW_SCALAR_STARTS_WITH_HASH,
+                           "flow-scalar must not start with '#'");
             return SIML_EVENT_ERROR;
         }
 
@@ -1399,8 +1408,8 @@ static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
                 return SIML_EVENT_ERROR;
             }
             if (s[pos] == '|') {
-                siml_set_error(p, SIML_ERR_SCALAR_STARTS_WITH_PIPE,
-                               "scalar must not start with '|'");
+                siml_set_error(p, SIML_ERR_FLOW_SCALAR_STARTS_WITH_PIPE,
+                               "flow-scalar must not start with '|'");
                 return SIML_EVENT_ERROR;
             }
 
@@ -1704,14 +1713,29 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 }
                 {
                     size_t i;
-                    int has_inline_comment = 0;
-                    for (i = 3; i + 2 < len; ++i) {
-                        if (s[i] == '#' && s[i - 1] == ' ' && s[i + 1] == ' ') {
-                            has_inline_comment = 1;
+                    int found_hash = 0;
+                    for (i = 3; i < len; ++i) {
+                        if (s[i] == '#' && s[i - 1] == ' ') {
+                            found_hash = 1;
                             break;
                         }
                     }
-                    if (has_inline_comment) {
+                    if (found_hash) {
+                        if (i + 1 >= len) {
+                            siml_set_error(p, SIML_ERR_EMPTY_COMMENT,
+                                           "empty comment is forbidden");
+                            return SIML_EVENT_ERROR;
+                        }
+                        if (s[i + 1] != ' ') {
+                            siml_set_error(p, SIML_ERR_INLINE_COMMENT_SPACE,
+                                           "inline comment must have exactly 1 space after '#'");
+                            return SIML_EVENT_ERROR;
+                        }
+                        if (i + 2 >= len) {
+                            siml_set_error(p, SIML_ERR_EMPTY_COMMENT,
+                                           "empty comment is forbidden");
+                            return SIML_EVENT_ERROR;
+                        }
                         siml_set_error(p, SIML_ERR_SEPARATOR_INLINE_COMMENT,
                                        "document separator must not have inline comments");
                         return SIML_EVENT_ERROR;
