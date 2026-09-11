@@ -1,6 +1,6 @@
 # full-line comment before the first item
-id: commented
-value: 42  # the answer
+id:
+  value: 42  # the answer
 # another comment
 flags: [ONE,TWO]   # trailing comment
 description: |
