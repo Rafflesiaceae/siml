@@ -168,8 +168,8 @@ Block form (inside an item)::
 
    - id: r_audio
      flags:
-     - CVAR_ARCHIVE
-     - CVAR_TEMP
+       - CVAR_ARCHIVE
+       - CVAR_TEMP
 
 In both forms, list elements are “bare words” like ``CVAR_ARCHIVE``,
 ``foo_bar_123``, etc.
@@ -195,7 +195,9 @@ Block form rules:
 
   - Belong to the same item (start with the standard item indentation of
     two spaces inside an item), and
-  - After those two spaces, start with ``-`` followed by at least one space.
+  - After those two spaces, add at least one more space before ``-`` and a
+    trailing space. A common and recommended layout is four spaces then
+    ``-`` (``␣␣␣␣- item``), matching normal YAML list indentation.
 
   Example (logical layout, without the code-block padding)::
 
@@ -249,6 +251,7 @@ Rules:
 2. The block content consists of all subsequent lines until:
 
    * A line that starts a new item (``-`` at column 0 as first non-space), or
+   * A comment line that starts at column 0 (``#`` with no leading spaces), or
    * End of file.
 
    By design, a literal block should be the last field of the item.

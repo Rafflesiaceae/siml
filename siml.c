@@ -332,6 +332,20 @@ parse_file(FILE *fp, const char *filename)
                 block_pending_blank = 0;
                 /* fall through: process as normal below */
             } else {
+                int indent = 0;
+                char *bp = line;
+
+                while (*bp == ' ') {
+                    indent++;
+                    bp++;
+                }
+                if (indent == 0 && *bp == '#') {
+                    /* comment at column 0 ends the literal block */
+                    printf("  \"\"\"\n");
+                    state = ST_OUTSIDE;
+                    block_pending_blank = 0;
+                    continue;
+                }
                 char *s = line;
 
                 if (s[0] == ' ') {
@@ -352,6 +366,7 @@ parse_file(FILE *fp, const char *filename)
 
         if (state == ST_BLOCK_LIST) {
             char *bp = lskip_spaces(line);
+            int indent = (int)(bp - line);
 
             if (is_blank(bp) || is_comment(bp)) {
                 continue;
@@ -365,10 +380,9 @@ parse_file(FILE *fp, const char *filename)
                 state = ST_OUTSIDE;
                 last_was_block = 0;
                 /* fall through to normal item handling below */
-            } else if (line[0] == ' ' && line[1] == ' ' &&
-                       line[2] == '-' && line[3] == ' ') {
+            } else if (indent >= 2 && bp[0] == '-' && bp[1] == ' ') {
                 /* block list element */
-                char *elem = line + 4;
+                char *elem = bp + 2;
                 char *hash_scan = elem;
                 char *closing_hash = NULL;
                 char last = ' ';
@@ -395,7 +409,7 @@ parse_file(FILE *fp, const char *filename)
                 printf("  %s[] = %s\n", block_list_key, elem);
                 block_list_has_items = 1;
                 continue;
-            } else if (line[0] == ' ' && line[1] == ' ') {
+            } else if (indent == 2) {
                 int rc;
                 char *body = line + 2;
 

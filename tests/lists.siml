@@ -9,11 +9,13 @@
 
 - id: block_list_demo
   tags:
-  - alpha
-  # keep beta near the top
-  - beta
+    - alpha
+    # keep beta near the top
+    - beta
   flags: # preferred flags
-  - fast
-  - stable # avoid churn
+    - fast
+    - stable # avoid churn
   labels:
   notes: block list demo after empty labels
+
+# vim: set ft=yaml:
