@@ -4,8 +4,8 @@ SIML (Simple Item Markup Language) v0.1
 
 SIML is a strict, line-oriented subset of YAML 1.2 designed so that a streaming
 reference parser can be written in short, clean ANSI C and that it can be
-**perfectly round-tripped**, such that a reference streaming parser can 1:1
-regenerate the input byte-by-byte.
+**perfectly round-tripped**, such that a parser can 1:1 regenerate the input
+byte-by-byte.
 
 Example
 =======
@@ -499,11 +499,9 @@ A literal block scalar is introduced by an inline value exactly equal to ``|``:
 Block scalar content rules:
 
 * Let ``H`` be the indentation of the header line.
-* The content consists of all following lines until the first line whose
-  indentation is **less than** ``H + 2``, or until EOF.
-* Every non-blank content line MUST start with exactly ``H + 2`` spaces.
-  The parser MUST strip exactly those ``H + 2`` spaces and take the remainder
-  verbatim as the content line text.
+* The content consists of all following lines until the first **non-blank** line
+  whose indentation is **less than** ``H + 2``, or until EOF.
+* Every **non-blank** content line MUST start with **exactly** ``H + 2`` spaces.
 * Blank lines (empty lines) are allowed **only** when they occur **between
   non-blank content lines**. Leading or trailing blank lines are forbidden.
 * Lines containing only spaces or tabs are forbidden.
@@ -517,8 +515,8 @@ Additional size limits:
 Semantic value:
 
 * The semantic value is the concatenation of content lines **including their
-  terminating ``\n``** (since every line ends in LF), i.e., content is preserved
-  exactly as it appeared after stripping the fixed indent.
+  terminating ``\n``** (since every line ends in LF). Blank lines contribute a
+  single ``\n`` to the semantic value.
 
 Inside literal block scalar content:
 
@@ -572,8 +570,23 @@ Keys:
 * MUST start immediately after the indentation (no leading extra spaces),
 * MUST be unique within a mapping (duplicate keys MUST cause a parsing error).
 
+10. Error Messages
+==================
 
-10. Disallowed YAML features (non-goals)
+Implementations MUST have the following **separate** error messages:
+
+* multi-line flow sequences are forbidden
+* unterminated flow sequence
+* blank lines are not allowed here
+* empty flow sequence element
+* document must start at indent 0
+* wrong indentation, expected: X
+* illegal mapping key, must match: [a-zA-Z_][a-zA-Z0-9_.-]*
+* expected single space after ':'
+* nested node indentation mismatch, expected X got Y
+* inline comment must have exactly 1 space after '#'
+
+11. Disallowed YAML features (non-goals)
 ========================================
 
 SIML forbids (MUST NOT support):
@@ -592,8 +605,7 @@ SIML forbids (MUST NOT support):
   (in SIML, sequence items MUST be either ``- <inline>`` or ``-`` followed by a
   nested node)
 
-
-11. Informal grammar (EBNF-ish)
+12. Informal grammar (EBNF-ish)
 ===============================
 
 .. code-block:: text
@@ -646,7 +658,7 @@ defined normatively in the corresponding sections and are not expressed in this
 grammar.
 
 
-12. Implementation intent
+13. Implementation intent
 =========================
 
 These restrictions are chosen so a reference parser can be implemented as:
@@ -665,7 +677,7 @@ spacing, no trailing spaces, no multi-line flow syntax), emitting structure is
 trivial and deterministic, enabling perfect round-trip of any valid ``.siml``
 file.
 
-13. Reference Implementation
+14. Reference Implementation
 ============================
 
 * Header only.
