@@ -1,1 +1,1 @@
-SIML error at line 1: inline comment must start with '# '
+SIML error at line 1: inline comment must have exactly 1 space after '#'
