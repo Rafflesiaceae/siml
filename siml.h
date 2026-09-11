@@ -518,7 +518,7 @@ siml_is_field_line(struct siml_iter *p,
 
     (void) p;
 
-    if (!(indent == 0 || indent == 2)) {
+    if (indent != 0) {
         return 0;
     }
 
@@ -891,7 +891,7 @@ siml_process_line(struct siml_iter *p, char *line)
 
         if (!siml_is_field_line(p, line, indent, &body_offset)) {
             return siml_fail(p, line_no,
-                             "%s:%ld: expected field to start document (use '---' between documents)",
+                             "%s:%ld: expected field at column 0 to start document (use '---' between documents)",
                              p->filename, line_no);
         }
 
@@ -920,7 +920,7 @@ siml_process_line(struct siml_iter *p, char *line)
 
         if (!siml_is_field_line(p, line, indent, &body_offset)) {
             return siml_fail(p, line_no,
-                             "%s:%ld: expected field at column 0 or with two-space indent",
+                             "%s:%ld: expected field at column 0",
                              p->filename, line_no);
         }
 

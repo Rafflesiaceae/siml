@@ -76,9 +76,9 @@ No nested mappings, no lists of lists, no lists of mappings.
 * The first item may omit the leading ``---``; a trailing ``---`` after the
   last item is allowed and ignored.
 * Blank lines and full-line comments may appear before separators.
-* Each item is written as a mapping whose fields start at column 0 (a
-  two-space indent is also accepted). There is no top-level list syntax like
-  ``- key: value``; every field starts with a key.
+* Each item is written as a mapping whose fields start at column 0.
+  There is no top-level list syntax like ``- key: value``; every field starts
+  with a key.
 
 4. Keys
 -------
@@ -155,14 +155,13 @@ A field can introduce a multi-line literal::
 
 Rules:
 
-1. The field line is ``key: |`` (optionally with a two-space indent). The
-   value part is exactly a single ``|`` (ignoring trailing spaces and inline
-   comment).
+1. The field line is ``key: |``. The value part is exactly a single ``|``
+   (ignoring trailing spaces and inline comment).
 
 2. The block content consists of all subsequent lines until:
 
-   * A line that starts a new field for the current item (column 0 or with a
-     two-space indent) with the same key/colon rules as any other field line.
+   * A line that starts a new field for the current item (column 0) with the
+     same key/colon rules as any other field line.
    * A document separator line ``---`` at column 0,
    * A comment line that starts at column 0 (``#`` with no leading spaces), or
    * End of file.
@@ -225,10 +224,7 @@ This is an informal EBNF-style description of SIML:
 
    document_separator ::= "---" SPACES? [ "#" TEXT ]?
 
-   item             ::= field_body_line { blank_or_comment | field_body_line }
-
-   field_body_line  ::= field_body
-                      | "  " field_body
+   item             ::= field_body { blank_or_comment | field_body }
 
    field_body       ::= key ":" " " field_value
 
@@ -280,7 +276,7 @@ Major restrictions:
 
 * Simplified syntax:
 
-  - Items are separated by ``---``; fields are at column 0 (or two spaces).
+  - Items are separated by ``---``; fields are at column 0.
   - Keys are unquoted identifiers.
   - Lists use bracket syntax ``[a, b, c]`` (single-line or multi-line) and
     elements are always bare words.

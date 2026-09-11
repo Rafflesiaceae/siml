@@ -1,7 +1,7 @@
 ---
 first: one
 ---
-  second: two
+second: two
 ---
 
 # vim: set ft=yaml:
