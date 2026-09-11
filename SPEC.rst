@@ -972,8 +972,8 @@ file.
 * No dynamic allocation.
 * No I/O. The caller provides a line-reading callback.
 * Pull parser API: the caller repeatedly calls siml_next() to obtain events.
-* All variable-sized buffers are held in a caller-supplied ``siml_scratch``
-  struct. Both the parser (``siml_parser``) and the scratch may be stack- or
+* All variable-sized buffers are held in a caller-supplied scratch buffer.
+  Both the parser object and the scratch buffer may be stack- or
   statically-allocated and must outlive the parse session.
-* ``siml_slice`` values in events are valid only until the next call to
-  ``siml_next()``. Callers that need to retain slice data must copy it.
+* String slices returned in events are valid only until the next parse call.
+  Callers that need to retain slice data must copy it.
