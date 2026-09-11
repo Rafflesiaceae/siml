@@ -221,18 +221,9 @@ typedef enum siml_doc_state_e {
     SIML_DOC_BETWEEN = 3  /* after --- separator, awaiting next document */
 } siml_doc_state;
 
-/* Caller-supplied scratch buffer holding all variable-sized arrays. Allocate
- * however suits the target (stack, static, heap). Must outlive the parser.
+/* Parser state. Allocate on the stack or statically; never access fields
+ * directly — use only siml_parser_init, siml_parser_reset, and siml_next.
  */
-typedef struct siml_scratch_s {
-    char              pending_key[SIML_MAX_KEY_LEN + 1];
-    char              mode_key[SIML_MAX_KEY_LEN + 1]; /* flow or block key */
-    char              error_buf[SIML_ERROR_BUF_SIZE];
-    siml_container    stack[SIML_MAX_NESTING];
-    siml_flow_frame   flow_stack[SIML_MAX_NESTING];
-} siml_scratch;
-
-/* Parser state — all variable-sized buffers live in siml_scratch. */
 typedef struct siml_parser_s {
     /* User-supplied input */
     siml_read_line_fn read_line;
@@ -253,13 +244,13 @@ typedef struct siml_parser_s {
     siml_mode         mode;
 
     /* Container stack */
-    siml_container   *stack;
+    siml_container    stack[SIML_MAX_NESTING];
     int               depth;
 
     /* Pending header-only value */
     int               pending_map;
     size_t            pending_indent;
-    char             *pending_key;
+    char              pending_key[SIML_MAX_KEY_LEN + 1];
     size_t            pending_key_len;
 
     /* Nested item introduced on the current sequence item line */
@@ -279,7 +270,7 @@ typedef struct siml_parser_s {
 
     /* Flow sequence parsing state */
     int               flow_depth;
-    siml_flow_frame  *flow_stack;
+    siml_flow_frame   flow_stack[SIML_MAX_NESTING];
     unsigned int      flow_inline_spaces;
     const char       *flow_inline_comment;
     size_t            flow_inline_comment_len;
@@ -287,7 +278,7 @@ typedef struct siml_parser_s {
     /* Block scalar parsing state */
     size_t            block_indent;
     /* mode_key/mode_key_len: key for whichever mode (flow or block) is active */
-    char             *mode_key;
+    char              mode_key[SIML_MAX_KEY_LEN + 1];
     size_t            mode_key_len;
     unsigned int      block_inline_spaces;
     const char       *block_inline_comment;
@@ -301,16 +292,14 @@ typedef struct siml_parser_s {
     /* Error state */
     siml_error_code   error_code;
     const char       *error_message;
-    char             *error_buf;
+    char              error_buf[SIML_ERROR_BUF_SIZE];
     long              error_line;
 } siml_parser;
 
-/* Initialize parser. Both parser and scratch may be stack- or
- * statically-allocated. scratch must outlive the parser.
- * siml_parser_reset() may be called after init to reparse with the same scratch.
+/* Initialize parser. p may be stack- or statically-allocated.
+ * siml_parser_reset() may be called after init to reparse the same stream.
  */
 void siml_parser_init(siml_parser *p,
-                      siml_scratch *scratch,
                       siml_read_line_fn read_line,
                       void *userdata);
 
@@ -793,39 +782,23 @@ static siml_event_type siml_emit_pending_start(siml_parser *p, siml_event *ev) {
 /* Parser public functions ----------------------------------------------- */
 
 void siml_parser_init(siml_parser *p,
-                      siml_scratch *scratch,
                       siml_read_line_fn read_line,
                       void *userdata) {
-    if (!p || !scratch) return;
-    p->pending_key = scratch->pending_key;
-    p->mode_key    = scratch->mode_key;
-    p->error_buf   = scratch->error_buf;
-    p->stack       = scratch->stack;
-    p->flow_stack  = scratch->flow_stack;
-    p->read_line             = read_line;
-    p->userdata              = userdata;
-    siml_parser_reset(p);
+    if (!p) return;
+    memset(p, 0, sizeof(*p));
+    p->read_line = read_line;
+    p->userdata  = userdata;
 }
 
 void siml_parser_reset(siml_parser *p) {
     siml_read_line_fn rl;
-    void            *ud;
-    char            *pk, *mk, *eb;
-    siml_container  *st;
-    siml_flow_frame *fs;
-
+    void             *ud;
     if (!p) return;
-    rl = p->read_line;    ud = p->userdata;
-    pk = p->pending_key;  mk = p->mode_key;
-    eb = p->error_buf;
-    st = p->stack;        fs = p->flow_stack;
-
+    rl = p->read_line;
+    ud = p->userdata;
     memset(p, 0, sizeof(*p));
-
-    p->read_line  = rl;  p->userdata = ud;
-    p->pending_key = pk; p->mode_key = mk;
-    p->error_buf   = eb;
-    p->stack       = st; p->flow_stack = fs;
+    p->read_line = rl;
+    p->userdata  = ud;
 }
 
 /* Forward declarations of internal state handlers */

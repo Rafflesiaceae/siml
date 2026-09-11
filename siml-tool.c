@@ -176,7 +176,6 @@ static int cmd_verify(int argc, char **argv) {
     FILE *fp;
     struct file_reader reader;
     siml_parser parser;
-    siml_scratch scratch;
     siml_event ev;
     siml_event_type t;
     int rc;
@@ -195,7 +194,7 @@ static int cmd_verify(int argc, char **argv) {
     }
 
     file_reader_init(&reader, fp);
-    siml_parser_init(&parser, &scratch, file_read_line, &reader);
+    siml_parser_init(&parser, file_read_line, &reader);
 
     rc = 0;
     for (;;) {
@@ -230,7 +229,6 @@ static int cmd_dump(int argc, char **argv) {
     FILE *fp;
     struct file_reader reader;
     siml_parser parser;
-    siml_scratch scratch;
     siml_event ev;
     int rc;
 
@@ -249,7 +247,7 @@ static int cmd_dump(int argc, char **argv) {
     }
 
     file_reader_init(&reader, fp);
-    siml_parser_init(&parser, &scratch, file_read_line, &reader);
+    siml_parser_init(&parser, file_read_line, &reader);
 
     rc = 0;
     for (;;) {
@@ -402,7 +400,6 @@ static int cmd_roundtrip(int argc, char **argv) {
     struct mem_reader reader;
     struct buffer out;
     siml_parser parser;
-    siml_scratch scratch;
     siml_event ev;
     int rc;
     size_t stack_indent[SIML_MAX_NESTING];
@@ -449,7 +446,7 @@ static int cmd_roundtrip(int argc, char **argv) {
     out.cap  = 0;
     depth    = 0;
 
-    siml_parser_init(&parser, &scratch, mem_read_line, &reader);
+    siml_parser_init(&parser, mem_read_line, &reader);
 
     rc = 0;
     for (;;) {
