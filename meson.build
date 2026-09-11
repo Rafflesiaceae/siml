@@ -5,11 +5,23 @@ project('siml', 'c',
 
 siml_tool = executable('siml-tool', 'siml-tool.c')
 
+# integration tests
 py = import('python').find_installation()
-
 test(
   'integration',
   py,
   args: files('tests.py'),
   depends: [siml_tool],
 )
+
+# fuzzer
+clang = find_program('clang', required: false)
+if clang.found()
+  custom_target(
+    'siml-fuzzer',
+    input: 'siml-fuzzer.c',
+    output: 'siml-fuzzer',
+    command: [clang, '-fsanitize=fuzzer,address', '-O1', '-o', '@OUTPUT@', '@INPUT@'],
+    build_by_default: false,
+  )
+endif

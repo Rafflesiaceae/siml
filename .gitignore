@@ -3,3 +3,6 @@ tests/
 
 testcases/*.out
 testcases/*.err
+
+siml-fuzzer
+fuzz-corpus/
