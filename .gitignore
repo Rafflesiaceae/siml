@@ -1,6 +1,3 @@
-/build/
-/bazel-*
-/tests/*.out
-/tests/*.err
-/bk/
-codegen_cvars
+build/
+tests/*.out
+tests/*.err
