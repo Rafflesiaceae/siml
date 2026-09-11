@@ -360,22 +360,7 @@ void siml_parser_init(siml_parser *p,
     if (!p) return;
     p->read_line = read_line;
     p->userdata  = userdata;
-    p->line      = 0;
-    p->line_len  = 0;
-    p->line_no   = 0;
-    p->have_line = 0;
-    p->at_eof    = 0;
-    p->started   = 0;
-    p->in_item   = 0;
-    p->mode      = SIML_MODE_NORMAL;
-    p->key_buf[0] = '\0';
-    p->key_len   = 0;
-    p->list_pos  = 0;
-    p->list_first_line = 0;
-    p->block_start_line = 0;
-    p->error_code = SIML_ERR_NONE;
-    p->error_message = 0;
-    p->error_line = 0;
+    siml_parser_reset(p);
 }
 
 void siml_parser_reset(siml_parser *p) {
