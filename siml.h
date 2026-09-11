@@ -214,6 +214,13 @@ typedef struct siml_flow_frame_s {
     int    started;
 } siml_flow_frame;
 
+typedef enum siml_doc_state_e {
+    SIML_DOC_IDLE    = 0, /* before STREAM_START is emitted */
+    SIML_DOC_BEFORE  = 1, /* stream started, no document yet */
+    SIML_DOC_IN      = 2, /* inside a document */
+    SIML_DOC_BETWEEN = 3  /* after --- separator, awaiting next document */
+} siml_doc_state;
+
 /* Caller-supplied scratch buffer holding all variable-sized arrays. Allocate
  * however suits the target (stack, static, heap). Must outlive the parser.
  */
@@ -240,10 +247,7 @@ typedef struct siml_parser_s {
     siml_error_code   line_cr_code;
 
     /* High-level document state */
-    int               started;
-    int               in_document;
-    int               seen_document;
-    int               awaiting_document;
+    siml_doc_state    doc_state;
 
     /* Current mode */
     siml_mode         mode;
@@ -749,7 +753,7 @@ static siml_event_type siml_emit_pending_end(siml_parser *p, siml_event *ev) {
     }
     if (p->pending_doc_end) {
         p->pending_doc_end = 0;
-        p->in_document = 0;
+        p->doc_state = p->pending_stream_end ? SIML_DOC_BEFORE : SIML_DOC_BETWEEN;
         ev->type = SIML_EVENT_DOCUMENT_END;
         ev->line = p->line_no;
         return ev->type;
@@ -844,9 +848,9 @@ siml_event_type siml_next(siml_parser *p, siml_event *ev) {
         return ev->type;
     }
 
-    if (!p->started) {
-        p->started = 1;
-        ev->type   = SIML_EVENT_STREAM_START;
+    if (p->doc_state == SIML_DOC_IDLE) {
+        p->doc_state = SIML_DOC_BEFORE;
+        ev->type     = SIML_EVENT_STREAM_START;
         ev->line   = 0;
         return ev->type;
     }
@@ -1500,22 +1504,18 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                    "header-only mapping entry must have a nested node");
                     return SIML_EVENT_ERROR;
                 }
-                if (p->awaiting_document) {
+                if (p->doc_state == SIML_DOC_BETWEEN) {
                     siml_set_error(p, SIML_ERR_SEPARATOR_AFTER_DOC,
                                    "document separator must not appear after the last document");
                     return SIML_EVENT_ERROR;
                 }
-                if (!p->seen_document) {
+                if (p->doc_state != SIML_DOC_IN) {
                     p->pending_stream_end = 1;
                     return siml_emit_pending_end(p, ev);
                 }
-                if (p->in_document) {
-                    p->pending_close = 1;
-                    p->target_depth = 0;
-                    p->pending_doc_end = 1;
-                    p->pending_stream_end = 1;
-                    return siml_emit_pending_end(p, ev);
-                }
+                p->pending_close = 1;
+                p->target_depth = 0;
+                p->pending_doc_end = 1;
                 p->pending_stream_end = 1;
                 return siml_emit_pending_end(p, ev);
             }
@@ -1596,12 +1596,11 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                        "header-only mapping entry must have a nested node");
                         return SIML_EVENT_ERROR;
                     }
-                    if (!p->in_document) {
+                    if (p->doc_state != SIML_DOC_IN) {
                         siml_set_error(p, SIML_ERR_SEPARATOR_BEFORE_DOC,
                                        "document separator must not appear before the first document");
                         return SIML_EVENT_ERROR;
                     }
-                    p->awaiting_document = 1;
                     p->pending_close = 1;
                     p->target_depth = 0;
                     p->pending_doc_end = 1;
@@ -1670,7 +1669,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                                        (unsigned long)indent);
                     return SIML_EVENT_ERROR;
                 }
-                if (!p->in_document) {
+                if (p->doc_state != SIML_DOC_IN) {
                     siml_set_error(p, SIML_ERR_DOC_SCALAR,
                                    "document root must not be a scalar");
                     return SIML_EVENT_ERROR;
@@ -1695,15 +1694,13 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 return siml_emit_pending_start(p, ev);
             }
 
-            if (!p->in_document) {
+            if (p->doc_state != SIML_DOC_IN) {
                 if (indent != 0) {
                     siml_set_error(p, SIML_ERR_DOC_INDENT,
                                    "document must start at indent 0");
                     return SIML_EVENT_ERROR;
                 }
-                p->seen_document = 1;
-                p->in_document = 1;
-                p->awaiting_document = 0;
+                p->doc_state = SIML_DOC_IN;
                 p->pending_doc_start = 1;
                 if (is_mapping) {
                     if (!siml_request_container_start(p, SIML_CONTAINER_MAP,

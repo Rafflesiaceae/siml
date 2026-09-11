@@ -466,7 +466,7 @@ static int cmd_roundtrip(int argc, char **argv) {
         case SIML_EVENT_DOCUMENT_START:
             break;
         case SIML_EVENT_DOCUMENT_END:
-            if (parser.awaiting_document) {
+            if (parser.doc_state == SIML_DOC_BETWEEN) {
                 if (!buf_append(&out, "---", 3) || !buf_append_char(&out, '\n'))
                     rc = 1;
             }
