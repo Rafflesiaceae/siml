@@ -1140,6 +1140,109 @@ static int siml_prepare_flow_sequence(siml_parser *p,
     return 1;
 }
 
+static siml_event_type siml_start_block(siml_parser *p, siml_event *ev,
+                                        const char *key, size_t key_len,
+                                        size_t indent,
+                                        unsigned int ic_spaces,
+                                        const char *ic_ptr, size_t ic_len) {
+    p->mode = SIML_MODE_BLOCK;
+    p->block_indent = indent;
+    if (key_len > 0) {
+        memcpy(p->block_key, key, key_len);
+    }
+    p->block_key[key_len] = '\0';
+    p->block_key_len = key_len;
+    p->block_inline_spaces = ic_spaces;
+    p->block_inline_comment = ic_ptr;
+    p->block_inline_comment_len = ic_len;
+    p->block_start_line = p->line_no;
+    p->block_seen_content = 0;
+    p->block_blank_count = 0;
+    p->block_blank_start_line = 0;
+    p->block_emit_blanks = 0;
+    p->have_line = 0;
+
+    ev->type = SIML_EVENT_BLOCK_SCALAR_START;
+    if (key_len > 0) {
+        ev->key = siml_make_slice(p->block_key, p->block_key_len);
+    }
+    ev->inline_comment_spaces = p->block_inline_spaces;
+    ev->inline_comment = siml_make_slice(p->block_inline_comment,
+                                         p->block_inline_comment_len);
+    ev->line = p->line_no;
+    return ev->type;
+}
+
+static siml_event_type siml_start_flow(siml_parser *p, siml_event *ev,
+                                       const char *key, size_t key_len,
+                                       size_t value_start, size_t value_len,
+                                       unsigned int ic_spaces,
+                                       const char *ic_ptr, size_t ic_len) {
+    if (!siml_prepare_flow_sequence(p, value_start, value_len)) {
+        return SIML_EVENT_ERROR;
+    }
+    p->mode = SIML_MODE_FLOW;
+    if (key_len > 0) {
+        memcpy(p->flow_key, key, key_len);
+    }
+    p->flow_key[key_len] = '\0';
+    p->flow_key_len = key_len;
+    p->flow_inline_spaces = ic_spaces;
+    p->flow_inline_comment = ic_ptr;
+    p->flow_inline_comment_len = ic_len;
+    return siml_next_flow(p, ev);
+}
+
+static siml_event_type siml_handle_inline_value(siml_parser *p, siml_event *ev,
+                                                const char *key, size_t key_len,
+                                                size_t indent,
+                                                size_t value_start, size_t value_len,
+                                                unsigned int ic_spaces,
+                                                const char *ic_ptr, size_t ic_len,
+                                                siml_error_code header_ic_err,
+                                                const char *header_ic_msg) {
+    if (value_len > SIML_MAX_INLINE_VALUE_LEN) {
+        siml_set_error(p, SIML_ERR_INLINE_VALUE_TOO_LONG,
+                       "inline value too long (max 2048 bytes)");
+        return SIML_EVENT_ERROR;
+    }
+    if (value_len == 0) {
+        if (ic_ptr) {
+            siml_set_error(p, header_ic_err, header_ic_msg);
+        } else {
+            siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
+                           "inline value is empty");
+        }
+        return SIML_EVENT_ERROR;
+    }
+
+    if (p->line[value_start] == '|') {
+        if (value_len != 1) {
+            siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
+                           "inline value is empty");
+            return SIML_EVENT_ERROR;
+        }
+        return siml_start_block(p, ev, key, key_len, indent,
+                                ic_spaces, ic_ptr, ic_len);
+    }
+
+    if (p->line[value_start] == '[') {
+        return siml_start_flow(p, ev, key, key_len, value_start, value_len,
+                               ic_spaces, ic_ptr, ic_len);
+    }
+
+    ev->type = SIML_EVENT_SCALAR;
+    if (key_len > 0) {
+        ev->key = siml_make_slice(key, key_len);
+    }
+    ev->value = siml_make_slice(p->line + value_start, value_len);
+    ev->inline_comment_spaces = ic_spaces;
+    ev->inline_comment = siml_make_slice(ic_ptr, ic_len);
+    ev->line = p->line_no;
+    p->have_line = 0;
+    return ev->type;
+}
+
 static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
     const char *s = p->line;
 
@@ -1736,79 +1839,13 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     continue;
                 }
 
-                if (value_len > SIML_MAX_INLINE_VALUE_LEN) {
-                    siml_set_error(p, SIML_ERR_INLINE_VALUE_TOO_LONG,
-                                   "inline value too long (max 2048 bytes)");
-                    return SIML_EVENT_ERROR;
-                }
-                if (value_len == 0 && ic_ptr) {
-                    siml_set_error(p, SIML_ERR_HEADER_MAP_INLINE_COMMENT,
-                                   "header-only mapping entry must not have inline comments");
-                    return SIML_EVENT_ERROR;
-                }
-                if (value_len == 0) {
-                    siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY, "inline value is empty");
-                    return SIML_EVENT_ERROR;
-                }
-
-                if (s[value_start] == '|') {
-                    if (value_len != 1) {
-                        siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
-                                       "inline value is empty");
-                        return SIML_EVENT_ERROR;
-                    }
-                    p->mode = SIML_MODE_BLOCK;
-                    p->block_indent = indent;
-                    memcpy(p->block_key, s + indent, key_len);
-                    p->block_key[key_len] = '\0';
-                    p->block_key_len = key_len;
-                    p->block_inline_spaces = ic_spaces;
-                    p->block_inline_comment = ic_ptr;
-                    p->block_inline_comment_len = ic_len;
-                    p->block_start_line = p->line_no;
-                    p->block_seen_content = 0;
-                    p->block_blank_count = 0;
-                    p->block_blank_start_line = 0;
-                    p->block_emit_blanks = 0;
-                    p->have_line = 0;
-
-                    ev->type = SIML_EVENT_BLOCK_SCALAR_START;
-                    ev->key = siml_make_slice(p->block_key, p->block_key_len);
-                    ev->inline_comment_spaces = p->block_inline_spaces;
-                    ev->inline_comment = siml_make_slice(p->block_inline_comment,
-                                                         p->block_inline_comment_len);
-                    ev->line = p->line_no;
-                    return ev->type;
-                }
-
-                if (s[value_start] == '[') {
-                    if (!siml_prepare_flow_sequence(p, value_start, value_len)) {
-                        return SIML_EVENT_ERROR;
-                    }
-                    p->mode = SIML_MODE_FLOW;
-                    memcpy(p->flow_key, s + indent, key_len);
-                    p->flow_key[key_len] = '\0';
-                    p->flow_key_len = key_len;
-                    p->flow_inline_spaces = ic_spaces;
-                    p->flow_inline_comment = ic_ptr;
-                    p->flow_inline_comment_len = ic_len;
-                    return siml_next_flow(p, ev);
-                }
-
-                if (s[value_start] == '[' || s[value_start] == '|') {
-                    siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
-                                   "inline value is empty");
-                    return SIML_EVENT_ERROR;
-                }
-
-                ev->type = SIML_EVENT_SCALAR;
-                ev->key = siml_make_slice(s + indent, key_len);
-                ev->value = siml_make_slice(s + value_start, value_len);
-                ev->inline_comment_spaces = ic_spaces;
-                ev->inline_comment = siml_make_slice(ic_ptr, ic_len);
-                ev->line = p->line_no;
-                p->have_line = 0;
-                return ev->type;
+                return siml_handle_inline_value(
+                    p, ev,
+                    s + indent, key_len, indent,
+                    value_start, value_len,
+                    ic_spaces, ic_ptr, ic_len,
+                    SIML_ERR_HEADER_MAP_INLINE_COMMENT,
+                    "header-only mapping entry must not have inline comments");
             }
 
             if (!siml_parse_sequence_item(p, s, len, indent,
@@ -1833,75 +1870,13 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 continue;
             }
 
-            if (value_len > SIML_MAX_INLINE_VALUE_LEN) {
-                siml_set_error(p, SIML_ERR_INLINE_VALUE_TOO_LONG,
-                               "inline value too long (max 2048 bytes)");
-                return SIML_EVENT_ERROR;
-            }
-            if (value_len == 0 && ic_ptr) {
-                siml_set_error(p, SIML_ERR_HEADER_SEQ_INLINE_COMMENT,
-                               "header-only sequence item must not have inline comments");
-                return SIML_EVENT_ERROR;
-            }
-            if (value_len == 0) {
-                siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY, "inline value is empty");
-                return SIML_EVENT_ERROR;
-            }
-
-            if (s[value_start] == '|') {
-                if (value_len != 1) {
-                    siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
-                                   "inline value is empty");
-                    return SIML_EVENT_ERROR;
-                }
-                p->mode = SIML_MODE_BLOCK;
-                p->block_indent = indent;
-                p->block_key[0] = '\0';
-                p->block_key_len = 0;
-                p->block_inline_spaces = ic_spaces;
-                p->block_inline_comment = ic_ptr;
-                p->block_inline_comment_len = ic_len;
-                p->block_start_line = p->line_no;
-                p->block_seen_content = 0;
-                p->block_blank_count = 0;
-                p->block_blank_start_line = 0;
-                p->block_emit_blanks = 0;
-                p->have_line = 0;
-
-                ev->type = SIML_EVENT_BLOCK_SCALAR_START;
-                ev->inline_comment_spaces = p->block_inline_spaces;
-                ev->inline_comment = siml_make_slice(p->block_inline_comment,
-                                                     p->block_inline_comment_len);
-                ev->line = p->line_no;
-                return ev->type;
-            }
-
-            if (s[value_start] == '[') {
-                if (!siml_prepare_flow_sequence(p, value_start, value_len)) {
-                    return SIML_EVENT_ERROR;
-                }
-                p->mode = SIML_MODE_FLOW;
-                p->flow_key[0] = '\0';
-                p->flow_key_len = 0;
-                p->flow_inline_spaces = ic_spaces;
-                p->flow_inline_comment = ic_ptr;
-                p->flow_inline_comment_len = ic_len;
-                return siml_next_flow(p, ev);
-            }
-
-            if (s[value_start] == '[' || s[value_start] == '|') {
-                siml_set_error(p, SIML_ERR_INLINE_VALUE_EMPTY,
-                               "inline value is empty");
-                return SIML_EVENT_ERROR;
-            }
-
-            ev->type = SIML_EVENT_SCALAR;
-            ev->value = siml_make_slice(s + value_start, value_len);
-            ev->inline_comment_spaces = ic_spaces;
-            ev->inline_comment = siml_make_slice(ic_ptr, ic_len);
-            ev->line = p->line_no;
-            p->have_line = 0;
-            return ev->type;
+            return siml_handle_inline_value(
+                p, ev,
+                0, 0, indent,
+                value_start, value_len,
+                ic_spaces, ic_ptr, ic_len,
+                SIML_ERR_HEADER_SEQ_INLINE_COMMENT,
+                "header-only sequence item must not have inline comments");
             }
         }
     }
