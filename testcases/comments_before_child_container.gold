@@ -1,0 +1,15 @@
+STREAM_START
+DOCUMENT_START
+MAPPING_START
+COMMENT   # comment before sequence child
+SEQUENCE_START style=block key=ab
+SCALAR value='first'
+SCALAR value='second'
+SEQUENCE_END
+COMMENT   # comment before mapping child
+MAPPING_START key=cd
+SCALAR key=key value='value'
+MAPPING_END
+MAPPING_END
+DOCUMENT_END
+STREAM_END
