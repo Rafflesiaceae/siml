@@ -233,19 +233,6 @@ Rules:
 * Comment lines are trivia; they MUST NOT affect structure.
 * Comment lines MUST be preserved verbatim for round-trip.
 
-FORBIDDEN (empty comment)::
-
-  #
-
-FORBIDDEN (empty comment text)::
-
-  #␠
-
-ALLOWED::
-
-  # heading comment
-    # indented comment
-
 5.2 Inline comments (alignment-preserving)
 ------------------------------------------
 
@@ -501,7 +488,8 @@ Block scalar content rules:
 * Let ``H`` be the indentation of the header line.
 * The content consists of all following lines until the first **non-blank** line
   whose indentation is **less than** ``H + 2``, or until EOF.
-* Every **non-blank** content line MUST start with **exactly** ``H + 2`` spaces.
+* Every **non-blank** content line MUST start with **exactly** ``H + 2`` spaces
+  which are stripped.
 * Blank lines (empty lines) are allowed **only** when they occur **between
   non-blank content lines**. Leading or trailing blank lines are forbidden.
 * Lines containing only spaces or tabs are forbidden.
@@ -601,7 +589,6 @@ SIML forbids (MUST NOT support):
 * blank lines outside literal block scalar content
 * lines containing only spaces or tabs outside literal block scalar content
 * empty comments (``#`` / ``#␠``) anywhere outside literal block scalar content
-* trailing spaces outside literal block scalar content
 * arbitrary YAML “compact” forms such as ``- key: value`` in sequences
   (in SIML, sequence items MUST be either ``- <inline>`` or ``-`` followed by a
   nested node)
