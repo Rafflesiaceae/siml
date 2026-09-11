@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FUZZER="${ROOT_DIR}/fuzzer"
 CORPUS="${ROOT_DIR}/.cache/fuzzer"
 TESTCASES="${ROOT_DIR}/testcases"
-DEFAULT_TIME=60
+DEFAULT_TIME=900
+DEFAULT_JOBS=16
 FOREVER=0
 MAX_LEN=""
 
@@ -16,7 +17,7 @@ Usage: $(basename "$0") [--forever] [--max-len=N] [-h|--help] [-- <libfuzzer-fla
 Run the siml libFuzzer harness.
 
 Options:
-  --forever      Run until Ctrl-C (default: stop after ${DEFAULT_TIME} s)
+  --forever      Run until Ctrl-C (default: stop after ${DEFAULT_TIME} s / 15 min)
   --max-len=N    Cap input size at N bytes (passed as -max_len=N to libFuzzer;
                  default: libFuzzer's own default of 4096)
   -h, --help     Show this help
@@ -69,10 +70,11 @@ FUZZ_ARGS=("${CORPUS}")
 if [[ "${FOREVER}" -eq 0 ]]; then
     FUZZ_ARGS+=("-max_total_time=${DEFAULT_TIME}")
 fi
+FUZZ_ARGS+=("-jobs=${DEFAULT_JOBS}" "-workers=${DEFAULT_JOBS}")
 if [[ -n "${MAX_LEN}" ]]; then
     FUZZ_ARGS+=("-max_len=${MAX_LEN}")
 fi
 FUZZ_ARGS+=("$@")
 
-echo "[fuzz] starting fuzzer ($([ "${FOREVER}" -eq 1 ] && echo 'running until Ctrl-C' || echo "stopping after ${DEFAULT_TIME} s"))..."
+echo "[fuzz] starting fuzzer ($([ "${FOREVER}" -eq 1 ] && echo 'running until Ctrl-C' || echo "stopping after ${DEFAULT_TIME} s"), ${DEFAULT_JOBS} jobs)..."
 exec "${FUZZER}" "${FUZZ_ARGS[@]}"
