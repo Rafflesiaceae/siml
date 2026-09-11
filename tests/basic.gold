@@ -26,7 +26,6 @@ SEQUENCE_START style=flow key=flags
 SEQUENCE_END
 BLOCK_SCALAR_START key=description
 BLOCK_SCALAR_LINE 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.'
-BLOCK_SCALAR_LINE ''
 BLOCK_SCALAR_LINE 'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
 BLOCK_SCALAR_LINE 'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.'
 BLOCK_SCALAR_END

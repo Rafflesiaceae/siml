@@ -139,7 +139,11 @@ Tabs:
 3.4 Forbidden blank lines and whitespace-only lines
 ---------------------------------------------------
 
-Outside literal block scalar content (section 7.2), SIML forbids:
+SIML forbids blank lines and whitespace-only lines everywhere, except that
+**blank lines** are allowed **only** inside literal block scalar content
+(section 7.2) and only **between non-blank lines**.
+
+Outside that exception, SIML forbids:
 
 * **Blank lines** (an empty line: zero characters before the LF).
 * **Lines containing only spaces or tabs**.
@@ -407,10 +411,14 @@ Rules:
 
 Flow element constraints:
 
-* Each element is a **simple scalar atom**:
+* Each element is either:
+  - a **simple scalar atom**, or
+  - a **nested flow sequence** (``[...]``), which follows the same rules.
+
+* Scalar atom rules:
   - MUST be non-empty
   - MUST NOT contain ``,``, ``]``, or newline
-  - MUST NOT start with ``[`` or ``|``
+  - MUST NOT start with ``|``
   - MUST be at most **128 bytes**
 
 6.4 Inline values (scalar / flow sequence / literal marker)
@@ -491,13 +499,14 @@ A literal block scalar is introduced by an inline value exactly equal to ``|``:
 Block scalar content rules:
 
 * Let ``H`` be the indentation of the header line.
-* The content consists of all following lines until the first **non-empty**
-  line whose indentation is **less than** ``H + 2``, or until EOF.
-* Every non-empty content line MUST start with exactly ``H + 2`` spaces.
+* The content consists of all following lines until the first line whose
+  indentation is **less than** ``H + 2``, or until EOF.
+* Every non-blank content line MUST start with exactly ``H + 2`` spaces.
   The parser MUST strip exactly those ``H + 2`` spaces and take the remainder
   verbatim as the content line text.
-* Empty lines (completely empty) are allowed and are part of the content.
-* SIML MUST NOT trim trailing blank lines in the block.
+* Blank lines (empty lines) are allowed **only** when they occur **between
+  non-blank content lines**. Leading or trailing blank lines are forbidden.
+* Lines containing only spaces or tabs are forbidden.
 
 Additional size limits:
 
@@ -613,9 +622,10 @@ SIML forbids (MUST NOT support):
 
    inline_comment ::= spaces1plus '# ' NONEMPTY_TEXT
 
-   flow_seq       ::= '[' ']' | '[' atom (',' atom)* ']'
+   flow_seq       ::= '[' ']' | '[' flow_elem (',' flow_elem)* ']'
+   flow_elem      ::= flow_seq | atom
    atom           ::= 1*(CHAR_EXCEPT_NEWLINE_COMMA_RBRACKET)
-                      AND not starting with '[' or '|'
+                      AND not starting with '|'
 
    plain_scalar   ::= 1*(CHAR_EXCEPT_NEWLINE)
                       AND not starting with '[' or '|'

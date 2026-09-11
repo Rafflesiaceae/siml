@@ -221,10 +221,11 @@ typedef struct siml_parser_s {
     int               pending_stream_end;
 
     /* Flow sequence parsing state */
-    int               flow_state; /* 0=start, 1=items, 2=end */
-    size_t            flow_start;
-    size_t            flow_end;   /* index of closing ']' */
-    size_t            flow_pos;
+    int               flow_depth;
+    size_t            flow_stack_start[SIML_MAX_NESTING];
+    size_t            flow_stack_end[SIML_MAX_NESTING];
+    size_t            flow_stack_pos[SIML_MAX_NESTING];
+    int               flow_stack_started[SIML_MAX_NESTING];
     char              flow_key[SIML_MAX_KEY_LEN + 1];
     size_t            flow_key_len;
     unsigned int      flow_inline_spaces;
@@ -239,6 +240,7 @@ typedef struct siml_parser_s {
     const char       *block_inline_comment;
     size_t            block_inline_comment_len;
     long              block_start_line;
+    int               block_seen_content;
 
     /* Error state */
     siml_error_code   error_code;
@@ -290,6 +292,14 @@ static int siml_is_whitespace_only(const char *s, size_t len) {
     size_t i;
     for (i = 0; i < len; ++i) {
         if (s[i] != ' ') return 0;
+    }
+    return 1;
+}
+
+static int siml_is_space_or_tab_only(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; ++i) {
+        if (s[i] != ' ' && s[i] != '\t') return 0;
     }
     return 1;
 }
@@ -717,10 +727,11 @@ void siml_parser_reset(siml_parser *p) {
     p->pending_container_key[0] = '\0';
     p->pending_container_key_len = 0;
     p->pending_stream_end = 0;
-    p->flow_state = 0;
-    p->flow_start = 0;
-    p->flow_end = 0;
-    p->flow_pos = 0;
+    p->flow_depth = 0;
+    p->flow_stack_start[0] = 0;
+    p->flow_stack_end[0] = 0;
+    p->flow_stack_pos[0] = 0;
+    p->flow_stack_started[0] = 0;
     p->flow_key[0] = '\0';
     p->flow_key_len = 0;
     p->flow_inline_spaces = 0;
@@ -733,6 +744,7 @@ void siml_parser_reset(siml_parser *p) {
     p->block_inline_comment = 0;
     p->block_inline_comment_len = 0;
     p->block_start_line = 0;
+    p->block_seen_content = 0;
     p->error_code = SIML_ERR_NONE;
     p->error_message = 0;
     p->error_line = 0;
@@ -910,6 +922,7 @@ static int siml_prepare_flow_sequence(siml_parser *p,
                                       size_t value_len) {
     size_t i;
     size_t end_index;
+    int depth = 0;
 
     if (value_len < 2) {
         siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "flow sequence too short");
@@ -920,95 +933,173 @@ static int siml_prepare_flow_sequence(siml_parser *p,
         siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "flow sequence must end with ']'");
         return 0;
     }
-    for (i = value_start + 1; i < end_index; ++i) {
-        if (p->line[i] == ' ' || p->line[i] == '\t') {
+    for (i = value_start; i <= end_index; ++i) {
+        char c = p->line[i];
+        if (c == ' ' || c == '\t') {
             siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "whitespace inside flow sequence is not allowed");
             return 0;
         }
-        if (p->line[i] == ']') {
-            siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "unexpected ']' inside flow sequence");
-            return 0;
+        if (c == '[') {
+            depth += 1;
+        } else if (c == ']') {
+            depth -= 1;
+            if (depth < 0) {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "unbalanced ']' in flow sequence");
+                return 0;
+            }
         }
     }
-    p->flow_start = value_start;
-    p->flow_end = end_index;
-    p->flow_pos = value_start + 1;
-    p->flow_state = 0;
+    if (depth != 0) {
+        siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "unbalanced '[' in flow sequence");
+        return 0;
+    }
+    p->flow_depth = 1;
+    p->flow_stack_start[0] = value_start;
+    p->flow_stack_end[0] = end_index;
+    p->flow_stack_pos[0] = value_start + 1;
+    p->flow_stack_started[0] = 0;
     return 1;
 }
 
 static siml_event_type siml_next_flow(siml_parser *p, siml_event *ev) {
     const char *s = p->line;
 
-    if (p->flow_state == 0) {
-        ev->type = SIML_EVENT_SEQUENCE_START;
-        ev->seq_style = SIML_SEQ_STYLE_FLOW;
-        ev->key = siml_make_slice(p->flow_key, p->flow_key_len);
-        ev->inline_comment_spaces = p->flow_inline_spaces;
-        ev->inline_comment = siml_make_slice(p->flow_inline_comment,
-                                             p->flow_inline_comment_len);
-        ev->line = p->line_no;
-        p->flow_state = 1;
-        return ev->type;
-    }
+    for (;;) {
+        int depth = p->flow_depth - 1;
+        size_t end;
+        size_t pos;
 
-    if (p->flow_state == 1) {
-        size_t start = p->flow_pos;
-        size_t i = start;
-        size_t end = p->flow_end;
-        size_t item_len;
-
-        if (start >= end) {
-            p->flow_state = 2;
-            return siml_next_flow(p, ev);
-        }
-
-        while (i < end && s[i] != ',') {
-            ++i;
-        }
-        item_len = i - start;
-        if (item_len == 0) {
-            siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "empty flow sequence element");
-            return SIML_EVENT_ERROR;
-        }
-        if (item_len > SIML_MAX_FLOW_ELEMENT_LEN) {
-            siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "flow sequence element too long");
-            return SIML_EVENT_ERROR;
-        }
-        if (s[start] == '[' || s[start] == '|') {
-            siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "flow sequence element has invalid start");
+        if (depth < 0) {
+            siml_set_error(p, SIML_ERR_INTERNAL, "invalid flow sequence depth");
             return SIML_EVENT_ERROR;
         }
 
-        ev->type = SIML_EVENT_SCALAR;
-        ev->value = siml_make_slice(s + start, item_len);
-        ev->line = p->line_no;
+        end = p->flow_stack_end[depth];
+        pos = p->flow_stack_pos[depth];
 
-        if (i < end && s[i] == ',') {
-            p->flow_pos = i + 1;
-            if (p->flow_pos == end) {
-                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "trailing comma in flow sequence");
+        if (!p->flow_stack_started[depth]) {
+            p->flow_stack_started[depth] = 1;
+            ev->type = SIML_EVENT_SEQUENCE_START;
+            ev->seq_style = SIML_SEQ_STYLE_FLOW;
+            if (depth == 0) {
+                ev->key = siml_make_slice(p->flow_key, p->flow_key_len);
+                ev->inline_comment_spaces = p->flow_inline_spaces;
+                ev->inline_comment = siml_make_slice(p->flow_inline_comment,
+                                                     p->flow_inline_comment_len);
+            }
+            ev->line = p->line_no;
+            return ev->type;
+        }
+
+        if (pos >= end) {
+            ev->type = SIML_EVENT_SEQUENCE_END;
+            ev->line = p->line_no;
+            if (depth == 0) {
+                p->mode = SIML_MODE_NORMAL;
+                p->have_line = 0;
+                p->flow_depth = 0;
+            } else {
+                p->flow_depth -= 1;
+            }
+            return ev->type;
+        }
+
+        if (s[pos] == '[') {
+            size_t i = pos;
+            int nest = 0;
+            size_t match = (size_t)(-1);
+            while (i <= end) {
+                if (s[i] == '[') nest += 1;
+                else if (s[i] == ']') {
+                    nest -= 1;
+                    if (nest == 0) {
+                        match = i;
+                        break;
+                    }
+                }
+                ++i;
+            }
+            if (match == (size_t)(-1) || match > end) {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "unbalanced '[' in flow sequence element");
                 return SIML_EVENT_ERROR;
             }
-        } else {
-            p->flow_pos = i;
-        }
-        if (p->flow_pos == end) {
-            p->flow_state = 2;
-        }
-        return ev->type;
-    }
 
-    if (p->flow_state == 2) {
-        ev->type = SIML_EVENT_SEQUENCE_END;
-        ev->line = p->line_no;
-        p->mode = SIML_MODE_NORMAL;
-        p->have_line = 0;
-        return ev->type;
-    }
+            p->flow_stack_pos[depth] = match + 1;
+            if (p->flow_stack_pos[depth] < end) {
+                if (s[p->flow_stack_pos[depth]] != ',') {
+                    siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "expected ',' after nested flow sequence");
+                    return SIML_EVENT_ERROR;
+                }
+                p->flow_stack_pos[depth] += 1;
+                if (p->flow_stack_pos[depth] == end) {
+                    siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "trailing comma in flow sequence");
+                    return SIML_EVENT_ERROR;
+                }
+            }
 
-    siml_set_error(p, SIML_ERR_INTERNAL, "invalid flow sequence state");
-    return SIML_EVENT_ERROR;
+            if (p->flow_depth >= SIML_MAX_NESTING) {
+                siml_set_error(p, SIML_ERR_TOO_DEEP, "nesting too deep");
+                return SIML_EVENT_ERROR;
+            }
+            p->flow_stack_start[p->flow_depth] = pos;
+            p->flow_stack_end[p->flow_depth] = match;
+            p->flow_stack_pos[p->flow_depth] = pos + 1;
+            p->flow_stack_started[p->flow_depth] = 0;
+            p->flow_depth += 1;
+            continue;
+        }
+
+        {
+            size_t i = pos;
+            size_t item_len;
+            while (i < end && s[i] != ',') {
+                if (s[i] == '[' || s[i] == ']') break;
+                ++i;
+            }
+            if (i <= pos) {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "empty flow sequence element");
+                return SIML_EVENT_ERROR;
+            }
+            if (s[i] == '[') {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "unexpected '[' inside flow element");
+                return SIML_EVENT_ERROR;
+            }
+            if (s[i] == ']') {
+                i = end;
+            }
+            item_len = i - pos;
+            if (item_len == 0) {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "empty flow sequence element");
+                return SIML_EVENT_ERROR;
+            }
+            if (item_len > SIML_MAX_FLOW_ELEMENT_LEN) {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "flow sequence element too long");
+                return SIML_EVENT_ERROR;
+            }
+            if (s[pos] == '|') {
+                siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "flow sequence element has invalid start");
+                return SIML_EVENT_ERROR;
+            }
+
+            ev->type = SIML_EVENT_SCALAR;
+            ev->value = siml_make_slice(s + pos, item_len);
+            ev->line = p->line_no;
+
+            p->flow_stack_pos[depth] = pos + item_len;
+            if (p->flow_stack_pos[depth] < end) {
+                if (s[p->flow_stack_pos[depth]] != ',') {
+                    siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "expected ',' between flow elements");
+                    return SIML_EVENT_ERROR;
+                }
+                p->flow_stack_pos[depth] += 1;
+                if (p->flow_stack_pos[depth] == end) {
+                    siml_set_error(p, SIML_ERR_BAD_FLOW_SEQUENCE, "trailing comma in flow sequence");
+                    return SIML_EVENT_ERROR;
+                }
+            }
+            return ev->type;
+        }
+    }
 }
 
 static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
@@ -1029,12 +1120,47 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
     if (!siml_check_line_common(p)) return SIML_EVENT_ERROR;
 
     if (p->line_len == 0) {
+        long blank_line_no;
+        int peek_rc;
+
+        if (!p->block_seen_content) {
+            siml_set_error(p, SIML_ERR_BAD_WHITESPACE, "blank lines are not allowed");
+            return SIML_EVENT_ERROR;
+        }
+
+        blank_line_no = p->line_no;
+        peek_rc = siml_fetch_line(p);
+        if (peek_rc < 0) return SIML_EVENT_ERROR;
+        if (peek_rc == 0) {
+            siml_set_error(p, SIML_ERR_BAD_WHITESPACE, "blank lines are not allowed");
+            return SIML_EVENT_ERROR;
+        }
+        if (!siml_check_line_common(p)) return SIML_EVENT_ERROR;
+        if (p->line_len == 0 || siml_is_space_or_tab_only(p->line, p->line_len)) {
+            siml_set_error(p, SIML_ERR_BAD_WHITESPACE, "blank lines are not allowed");
+            return SIML_EVENT_ERROR;
+        }
+        {
+            size_t peek_indent = 0;
+            size_t j;
+            for (j = 0; j < p->line_len && p->line[j] == ' '; ++j) {
+                peek_indent += 1;
+            }
+            if (peek_indent < p->block_indent + 2) {
+                siml_set_error(p, SIML_ERR_BAD_WHITESPACE, "blank lines are not allowed");
+                return SIML_EVENT_ERROR;
+            }
+        }
+
         ev->type = SIML_EVENT_BLOCK_SCALAR_LINE;
         ev->key = siml_make_slice(p->block_key, p->block_key_len);
         ev->value = siml_make_slice("", 0);
-        ev->line = p->line_no;
-        p->have_line = 0;
+        ev->line = blank_line_no;
         return ev->type;
+    }
+    if (siml_is_space_or_tab_only(p->line, p->line_len)) {
+        siml_set_error(p, SIML_ERR_BAD_WHITESPACE, "whitespace-only lines are not allowed");
+        return SIML_EVENT_ERROR;
     }
 
     {
@@ -1076,6 +1202,7 @@ static siml_event_type siml_next_block(siml_parser *p, siml_event *ev) {
         ev->value = siml_make_slice(s + p->block_indent + 2,
                                     len - (p->block_indent + 2));
         ev->line = p->line_no;
+        p->block_seen_content = 1;
         p->have_line = 0;
         return ev->type;
     }
@@ -1306,6 +1433,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                     p->block_inline_comment = ic_ptr;
                     p->block_inline_comment_len = ic_len;
                     p->block_start_line = p->line_no;
+                    p->block_seen_content = 0;
                     p->have_line = 0;
 
                     ev->type = SIML_EVENT_BLOCK_SCALAR_START;
@@ -1386,6 +1514,7 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 p->block_inline_comment = ic_ptr;
                 p->block_inline_comment_len = ic_len;
                 p->block_start_line = p->line_no;
+                p->block_seen_content = 0;
                 p->have_line = 0;
 
                 ev->type = SIML_EVENT_BLOCK_SCALAR_START;

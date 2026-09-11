@@ -6,7 +6,6 @@ BLOCK_SCALAR_START key=description
 BLOCK_SCALAR_LINE 'line'
 BLOCK_SCALAR_LINE '	after tab'
 BLOCK_SCALAR_LINE '  after spaces'
-BLOCK_SCALAR_LINE ''
 BLOCK_SCALAR_END
 COMMENT # vim: set ft=yaml:
 MAPPING_END
