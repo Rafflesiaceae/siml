@@ -2,7 +2,8 @@
 #define SIML_H_INCLUDED
 
 /*
- * SIML reference parser v0.1 (2025-12-04) (dc63668653f58372)
+ * SIML reference parser v1.0 (2025-12-04) (aae7bc0c269a3a6f)
+ * see https://github.com/Vorschreibung/siml
  *
  * Header-only, pure ANSI C89 implementation of the SIML specification.
  *
