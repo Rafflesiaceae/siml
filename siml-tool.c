@@ -628,20 +628,34 @@ static int cmd_roundtrip(int argc, char **argv) {
  * Entry point
  * ========================================================================= */
 
+static void print_help(const char *prog) {
+    (void)printf(
+        "Usage: %s <subcommand> <file.siml>\n"
+        "\n"
+        "Subcommands:\n"
+        "  verify    <file>  Parse and validate; silent on success, exits 1 on error.\n"
+        "  dump      <file>  Parse and print a human-readable event trace to stdout.\n"
+        "  roundtrip <file>  Parse, reconstruct, and compare byte-for-byte with input.\n"
+        "\n"
+        "Pass '-' as <file> to read from stdin (verify and dump only).\n",
+        prog);
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
-        (void)fprintf(stderr,
-                      "Usage: %s <subcommand> <file.siml>\n"
-                      "Subcommands: verify  dump  roundtrip\n",
-                      argv[0]);
+        print_help(argv[0]);
         return 1;
+    }
+    if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+        print_help(argv[0]);
+        return 0;
     }
     if (strcmp(argv[1], "verify")    == 0) return cmd_verify(argc, argv);
     if (strcmp(argv[1], "dump")      == 0) return cmd_dump(argc, argv);
     if (strcmp(argv[1], "roundtrip") == 0) return cmd_roundtrip(argc, argv);
 
     (void)fprintf(stderr, "%s: unknown subcommand '%s'\n"
-                          "Subcommands: verify  dump  roundtrip\n",
-                  argv[0], argv[1]);
+                          "Run '%s --help' for usage.\n",
+                  argv[0], argv[1], argv[0]);
     return 1;
 }
