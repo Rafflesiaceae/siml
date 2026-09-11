@@ -2,17 +2,14 @@
 #define SIML_H_INCLUDED
 
 /*
- * SIML (Simple Item Markup Language) pull parser
+ * SIML reference parser v0.1 (2025-12-04) (dc63668653f58372)
  *
  * Header-only, pure ANSI C89 implementation of the SIML specification.
  *
  * Features:
- *  - No dynamic allocation: the library never calls malloc/free.
- *  - No I/O: the library never touches stdio. The caller provides a
- *    line-reading callback.
- *  - Pull parser API: the caller repeatedly calls siml_next() to obtain
- *    events.
- *  - Designed to be usable on embedded systems as well as servers.
+ *  - No dynamic allocation.
+ *  - No I/O. The caller provides a line-reading callback.
+ *  - Pull parser API: the caller repeatedly calls siml_next() to obtain events.
  */
 
 #ifdef __cplusplus
@@ -430,47 +427,49 @@ siml_event_type siml_next(siml_parser *p, siml_event *ev) {
 static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
     int rc;
 
-    /* If we are inside an item and already hit EOF and have no line,
-     * then the item ends here.
-     */
-    if (p->in_item && p->at_eof && !p->have_line) {
-        p->in_item = 0;
-        ev->type = SIML_EVENT_ITEM_END;
-        ev->line = p->line_no;
-        return ev->type;
-    }
-
-    /* Find the next non-blank/non-comment line. */
-    rc = siml_skip_blank_and_comment(p);
-    if (rc < 0) {
-        return SIML_EVENT_ERROR;
-    }
-    if (rc == 0) {
-        /* EOF */
-        if (p->in_item) {
+    for (;;) {
+        /* If we are inside an item and already hit EOF and have no line,
+         * then the item ends here.
+         */
+        if (p->in_item && p->at_eof && !p->have_line) {
             p->in_item = 0;
             ev->type = SIML_EVENT_ITEM_END;
             ev->line = p->line_no;
             return ev->type;
         }
-        ev->type = SIML_EVENT_STREAM_END;
-        ev->line = p->line_no;
-        return ev->type;
-    }
 
-    /* Now we have a non-blank, non-comment line. */
-    if (siml_is_doc_separator(p->line, p->line_len)) {
-        /* Separator line */
-        p->have_line = 0; /* consume it */
-        if (p->in_item) {
-            p->in_item = 0;
-            ev->type = SIML_EVENT_ITEM_END;
+        /* Find the next non-blank/non-comment line. */
+        rc = siml_skip_blank_and_comment(p);
+        if (rc < 0) {
+            return SIML_EVENT_ERROR;
+        }
+        if (rc == 0) {
+            /* EOF */
+            if (p->in_item) {
+                p->in_item = 0;
+                ev->type = SIML_EVENT_ITEM_END;
+                ev->line = p->line_no;
+                return ev->type;
+            }
+            ev->type = SIML_EVENT_STREAM_END;
             ev->line = p->line_no;
             return ev->type;
-        } else {
+        }
+
+        /* Now we have a non-blank, non-comment line. */
+        if (siml_is_doc_separator(p->line, p->line_len)) {
+            /* Separator line */
+            p->have_line = 0; /* consume it */
+            if (p->in_item) {
+                p->in_item = 0;
+                ev->type = SIML_EVENT_ITEM_END;
+                ev->line = p->line_no;
+                return ev->type;
+            }
             /* Separator while already between items: ignore and look again. */
-            return siml_next_normal(p, ev);
+            continue;
         }
+        break;
     }
 
     /* At this point, the line must be a field. If we are not yet in an item,
