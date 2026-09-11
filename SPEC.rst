@@ -1,13 +1,11 @@
 SIML (Simple Item Markup Language)
 ==================================
 
-SIML is a deliberately tiny subset of YAML designed so that a reference
-parser can be written in short, clean ANSI C using only the standard
-library.
+SIML is a strict small subset of YAML designed so that a streaming reference
+parser can be written in short, clean ANSI C.
 
 It is line-oriented, has a fixed structure, and does not support arbitrary
-nesting. It is meant for files like lists of configuration records, 
-not as a general data language.
+nesting.
 
 Example
 -------
@@ -39,11 +37,12 @@ Example
    default: 1
    min: 0.0
    max: 1.0
-   flags:
-     - CVAR_ARCHIVE
-     - CVAR_TEMP
+   flags: [
+     CVAR_ARCHIVE,
+     CVAR_TEMP,
+   ]
    description: |
-     Example using block list syntax for ``flags``.
+     Example using bracketed multi-line list syntax for ``flags``.
 
 1. Data model
 -------------
@@ -56,7 +55,7 @@ separator is allowed.
 * Value types:
 
   - Scalar (single line, stored as a string),
-  - List of scalars (inline ``[a, b, c]`` or block ``key:`` + ``- item`` form),
+  - List of scalars (bracketed ``[a, b, c]`` form, single-line or multi-line),
   - Literal block (multi-line string starting with ``|``).
 
 No nested mappings, no lists of lists, no lists of mappings.
@@ -79,8 +78,7 @@ No nested mappings, no lists of lists, no lists of mappings.
 * Blank lines and full-line comments may appear before separators.
 * Each item is written as a mapping whose fields start at column 0 (a
   two-space indent is also accepted). There is no top-level list syntax like
-  ``- key: value``; the ``-`` prefix is only used for block lists inside an
-  item.
+  ``- key: value``; every field starts with a key.
 
 4. Keys
 -------
@@ -98,10 +96,6 @@ No nested mappings, no lists of lists, no lists of mappings.
 
 Everything after ``key: `` on a line is the raw value text, before stripping
 trailing whitespace and optional inline comments.
-
-For block list values, the key line has an empty value (nothing after the
-colon, ignoring trailing spaces and inline comment), and the elements of
-the list are read from subsequent ``-`` lines (see section 5.2).
 
 SIML itself treats all non-list values as strings; interpretation as integer,
 float, enum, etc. is up to the application. Lists are sequences of strings
@@ -123,72 +117,30 @@ The parser returns the scalar as a string. Numeric parsing (``strtol``,
 5.2 List values
 ~~~~~~~~~~~~~~~
 
-Lists are sequences of bare words and can be written in either inline
-or block form.
+Lists are sequences of bare words written with brackets.
 
-Inline form::
+Inline examples::
 
    flags: [CVAR_ARCHIVE, CVAR_TEMP]
-   tags: [foo, bar, baz]
+   tags: [foo, bar, baz,]
    empty: []
 
-Block form (inside an item)::
+Multi-line bracketed form::
 
-   - id: r_audio
-     flags:
-       - CVAR_ARCHIVE
-       - CVAR_TEMP
+   flags: [
+     CVAR_ARCHIVE,
+     CVAR_TEMP,
+   ]
 
-In both forms, list elements are “bare words” like ``CVAR_ARCHIVE``,
-``foo_bar_123``, etc.
+Rules:
 
-Inline form rules:
-
-* The value must start with ``[`` and end with ``]`` on the same line.
-* Inside, zero or more list items, separated by commas.
-* Each list item is:
-
-  - Optional leading/trailing spaces,
-  - A non-empty sequence of characters that are not: comma, closing bracket,
-    or space.
-
-* No quoting or escaping inside inline lists.
-
-Block form rules:
-
-* The key line is ``key:`` where the value part is empty after the colon
-  (ignoring trailing spaces and inline comment).
-* The list consists of subsequent lines that:
-
-  - Belong to the same item (start with at least two spaces before ``-``), and
-  - After that indent, add a space before ``-`` and a trailing space. A common
-    and recommended layout is two spaces then ``-`` (``␣␣- item``).
-
-  Example (logical layout, without the code-block padding)::
-
-     flags:
-       - CVAR_ARCHIVE
-       - CVAR_TEMP
-
-* For each such list line, everything after the ``-`` and any following
-  spaces, up to an inline comment (see section 6), is parsed as a bare word
-  and becomes one element of the list.
-* The block list ends when one of these happens:
-
-  - A new document separator line ``---`` appears,
-  - A new field line starts (column 0 or two spaces, then a key and ``:``),
-  - End of file.
-
-* Blank lines and full-line comments between list items are allowed and
-  ignored; they do not create empty elements.
-* If no list item lines (``- item``) appear before the next field/new item/
-  EOF, the original ``key:`` line is treated as a scalar with value ``""``.
-  To write an empty list, use the inline form ``key: []`` or provide at least
-  one list item line.
-* Inline and block lists are equivalent at the data-model level; both
-  represent the same “list of scalars” value type.
-* No quoting or escaping is allowed inside list elements; each element
-  must be a single bare word.
+* The value must start with ``[`` and end with the matching ``]``. The closing
+  bracket may appear on the same line or a later line of the same item.
+* Inside, zero or more list items separated by commas; a trailing comma before
+  ``]`` is allowed.
+* Each list item is optional leading/trailing spaces followed by a non-empty
+  sequence of characters that are not a comma or closing bracket.
+* No quoting or escaping inside lists. ``#`` is just another character.
 
 5.3 Literal block values (``|``)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -273,9 +225,7 @@ This is an informal EBNF-style description of SIML:
 
    document_separator ::= "---" SPACES? [ "#" TEXT ]?
 
-   item             ::= field_body_line { blank_or_comment | item_field }
-   item_field       ::= field_body_line
-                      | "  - " block_list_element   ; block list item
+   item             ::= field_body_line { blank_or_comment | field_body_line }
 
    field_body_line  ::= field_body
                       | "  " field_body
@@ -288,15 +238,7 @@ This is an informal EBNF-style description of SIML:
 
    block_marker     ::= "|"
 
-   list_value       ::= "[" [ list_item { "," list_item } ] "]"
-                      | block_list
-
-   block_list       ::= { block_list_line }
-
-   block_list_line  ::= "  - " block_list_element
-
-   block_list_element
-                      ::= bare_word   ; up to inline comment/#
+   list_value       ::= "[" [ list_item { "," list_item } ] [ "," ] "]"
 
    list_item        ::= SPACES? bare_word SPACES?
 
@@ -309,7 +251,6 @@ This is an informal EBNF-style description of SIML:
    blank_or_comment ::= BLANK_LINE | COMMENT_LINE
 
 Block content after ``block_marker`` is defined by the rules in section 5.3.
-Block list details are defined in section 5.2.
 
 8. Differences from YAML
 ------------------------
@@ -321,7 +262,7 @@ Major restrictions:
 * No arbitrary nesting:
 
   - Only: top-level sequence of flat mappings.
-  - Values are only: scalar, simple list of bare words (inline or block),
+  - Values are only: scalar, list of bare words written with brackets,
     or literal block.
   - No mappings inside lists, no lists of lists, no nested mappings.
 
@@ -339,11 +280,10 @@ Major restrictions:
 
 * Simplified syntax:
 
-  - Items are separated by ``---``; fields are at column 0 (or two spaces),
-    and block list lines use an extra indent before ``-``.
+  - Items are separated by ``---``; fields are at column 0 (or two spaces).
   - Keys are unquoted identifiers.
-  - Lists are either inline ``[a, b, c]`` or simple block lists using
-    ``- item``, and elements are always bare words.
+  - Lists use bracket syntax ``[a, b, c]`` (single-line or multi-line) and
+    elements are always bare words.
   - Literal blocks are always ``|`` and can appear anywhere within an item.
 
 * Minimal comment behavior:

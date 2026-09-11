@@ -9,15 +9,13 @@ empty:
 list4: [with_hash, value#notcomment]
 ---
 id: block_list_demo
-tags:
-  - alpha
-  # keep beta near the top
-  - beta
-flags: # preferred flags
-  - fast
-  - stable # avoid churn
-labels: []
-notes: block list demo after empty labels
+tags: [alpha, beta]
+flags: [fast, stable,]
+labels: [
+  slow,
+  experimental,
+]
+notes: bracket list variants after empty labels
 
 --- # trailing separator should be ignored
 # vim: set ft=yaml:

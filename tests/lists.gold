@@ -19,5 +19,6 @@ item 1
   tags[] = 'beta'
   flags[] = 'fast'
   flags[] = 'stable'
-  labels[] = ''
-  notes = 'block list demo after empty labels'
+  labels[] = 'slow'
+  labels[] = 'experimental'
+  notes = 'bracket list variants after empty labels'

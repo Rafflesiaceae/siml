@@ -62,7 +62,7 @@ enum siml_state {
     ST_OUTSIDE = 0,
     ST_ITEM,
     ST_BLOCK_LITERAL,
-    ST_BLOCK_LIST
+    ST_INLINE_LIST
 };
 
 struct siml_iter {
@@ -72,9 +72,11 @@ struct siml_iter {
     long line_no;
     enum siml_state state;
     int item_index;
-    char block_list_key[SIML_MAX_KEY];
-    int block_list_has_items;
-    int block_list_pending_scalar;
+    char list_key[SIML_MAX_KEY];
+    char *list_buffer;
+    size_t list_buffer_len;
+    size_t list_buffer_cap;
+    long list_start_line;
     char literal_key[SIML_MAX_KEY];
     char **block_lines;
     size_t block_lines_count;
@@ -246,6 +248,43 @@ siml_block_buffer_reset(struct siml_iter *p)
     p->block_min_indent = -1;
 }
 
+static void
+siml_list_buffer_reset(struct siml_iter *p)
+{
+    free(p->list_buffer);
+    p->list_buffer = NULL;
+    p->list_buffer_len = 0;
+    p->list_buffer_cap = 0;
+    p->list_key[0] = '\0';
+    p->list_start_line = 0;
+}
+
+static int
+siml_list_buffer_append(struct siml_iter *p, const char *text)
+{
+    size_t len = strlen(text);
+
+    if (p->list_buffer_len + len + 1 > p->list_buffer_cap) {
+        size_t new_cap = p->list_buffer_cap ? p->list_buffer_cap * 2 : 64;
+
+        while (new_cap < p->list_buffer_len + len + 1) {
+            new_cap *= 2;
+        }
+
+        char *new_buf = (char *) realloc(p->list_buffer, new_cap);
+        if (!new_buf) {
+            return 1;
+        }
+        p->list_buffer = new_buf;
+        p->list_buffer_cap = new_cap;
+    }
+
+    memcpy(p->list_buffer + p->list_buffer_len, text, len);
+    p->list_buffer_len += len;
+    p->list_buffer[p->list_buffer_len] = '\0';
+    return 0;
+}
+
 static int
 siml_block_buffer_append(struct siml_iter *p,
                          const char *line,
@@ -405,6 +444,69 @@ siml_block_buffer_emit(struct siml_iter *p, long line_no)
 }
 
 static int
+siml_emit_inline_list(struct siml_iter *p,
+                      const char *key,
+                      char *inside,
+                      long line_no)
+{
+    char *elem = siml_lskip_spaces(inside);
+
+    if (*elem == '\0') {
+        if (siml_queue_event(p,
+                             SIML_EVENT_LIST_EMPTY,
+                             key,
+                             NULL,
+                             NULL,
+                             p->item_index,
+                             line_no) != 0) {
+            return siml_fail(p, line_no,
+                             "%s:%ld: out of memory",
+                             p->filename, line_no);
+        }
+        return 0;
+    }
+
+    while (*elem) {
+        char *comma;
+        char *next;
+
+        comma = strchr(elem, ',');
+        if (comma) {
+            *comma = '\0';
+            next = comma + 1;
+        } else {
+            next = elem + strlen(elem);
+        }
+
+        siml_rstrip_spaces(elem);
+        if (*elem == '\0') {
+            return siml_fail(p, line_no,
+                             "%s:%ld: empty list element in key '%s'",
+                             p->filename, line_no, key);
+        }
+
+        if (siml_queue_event(p,
+                             SIML_EVENT_LIST_ELEMENT,
+                             key,
+                             elem,
+                             NULL,
+                             p->item_index,
+                             line_no) != 0) {
+            return siml_fail(p, line_no,
+                             "%s:%ld: out of memory",
+                             p->filename, line_no);
+        }
+
+        elem = siml_lskip_spaces(next);
+        if (*elem == '\0') {
+            break;
+        }
+    }
+
+    return 0;
+}
+
+static int
 siml_is_field_line(struct siml_iter *p,
                    const char *line,
                    int indent,
@@ -488,41 +590,6 @@ siml_parse_field(struct siml_iter *p,
                          p->filename, line_no, key);
     }
 
-    /* detect block list (empty value, ignoring inline comment) */
-    {
-        int value_is_empty = 1;
-        char last = ' ';
-        char *scan = value;
-
-        while (*scan) {
-            if (*scan == '#' &&
-                (last == ' ' || last == '\t')) {
-                break;
-            }
-            if (*scan != ' ' && *scan != '\t') {
-                value_is_empty = 0;
-                break;
-            }
-            last = *scan;
-            scan++;
-        }
-
-        if (value_is_empty) {
-            size_t key_len = strlen(key);
-
-            if (key_len + 1 > sizeof(p->block_list_key)) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: block list key too long '%s'",
-                                 p->filename, line_no, key);
-            }
-            strcpy(p->block_list_key, key);
-            p->block_list_has_items = 0;
-            p->block_list_pending_scalar = 1;
-            p->state = ST_BLOCK_LIST;
-            return 0;
-        }
-    }
-
     if (value[0] == '|') {
         size_t key_len = strlen(key);
 
@@ -552,93 +619,42 @@ siml_parse_field(struct siml_iter *p,
         /* list value */
         char *closing;
         char *p_char;
-        char *inside;
-        char *end;
-        char *elem;
 
         closing = strrchr(value, ']');
-        if (!closing) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: list for key '%s' missing ']'",
-                             p->filename, line_no, key);
-        }
-        p_char = closing + 1;
-        while (*p_char == ' ' || *p_char == '\t') {
-            p_char++;
-        }
-        if (*p_char != '\0' && *p_char != '#') {
-            return siml_fail(p, line_no,
-                             "%s:%ld: unexpected text after list for key '%s'",
-                             p->filename, line_no, key);
-        }
-        /* terminate at ']' */
-        closing[1] = '\0';
-        siml_rstrip_spaces(value);
-
-        /* now parse inside [ ... ] */
-        inside = value + 1;
-        end = strchr(inside, ']');
-        if (!end) {
-            return siml_fail(p, line_no,
-                             "%s:%ld: internal error parsing list '%s'",
-                             p->filename, line_no, key);
-        }
-        *end = '\0';
-
-        elem = siml_lskip_spaces(inside);
-        if (*elem == '\0') {
-            if (siml_queue_event(p,
-                                 SIML_EVENT_LIST_EMPTY,
-                                 key,
-                                 NULL,
-                                 NULL,
-                                 p->item_index,
-                                 line_no) != 0) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: out of memory",
-                                 p->filename, line_no);
+        if (closing) {
+            p_char = closing + 1;
+            while (*p_char == ' ' || *p_char == '\t') {
+                p_char++;
             }
-            return 0;
-        }
-
-        while (*elem) {
-            char *comma;
-            char *next;
-
-            comma = strchr(elem, ',');
-            if (comma) {
-                *comma = '\0';
-                next = comma + 1;
-            } else {
-                next = elem + strlen(elem);
-            }
-
-            siml_rstrip_spaces(elem);
-            if (*elem == '\0') {
+            if (*p_char != '\0' && *p_char != '#') {
                 return siml_fail(p, line_no,
-                                 "%s:%ld: empty list element in key '%s'",
+                                 "%s:%ld: unexpected text after list for key '%s'",
                                  p->filename, line_no, key);
             }
-
-            if (siml_queue_event(p,
-                                 SIML_EVENT_LIST_ELEMENT,
-                                 key,
-                                 elem,
-                                 NULL,
-                                 p->item_index,
-                                 line_no) != 0) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: out of memory",
-                                 p->filename, line_no);
-            }
-
-            elem = siml_lskip_spaces(next);
-            if (*elem == '\0') {
-                break;
-            }
+            *closing = '\0';
+            siml_rstrip_spaces(value);
+            return siml_emit_inline_list(p, key, value + 1, line_no);
         }
 
-        return 0;
+        {
+            size_t key_len = strlen(key);
+
+            if (key_len + 1 > sizeof(p->list_key)) {
+                return siml_fail(p, line_no,
+                                 "%s:%ld: list key too long '%s'",
+                                 p->filename, line_no, key);
+            }
+            siml_list_buffer_reset(p);
+            strcpy(p->list_key, key);
+            p->list_start_line = line_no;
+            if (siml_list_buffer_append(p, value + 1) != 0) {
+                return siml_fail(p, line_no,
+                                 "%s:%ld: out of memory buffering list '%s'",
+                                 p->filename, line_no, key);
+            }
+            p->state = ST_INLINE_LIST;
+            return 0;
+        }
     } else {
         /* scalar, handle inline comment */
         char *hash_scan = value;
@@ -684,7 +700,7 @@ siml_iter_init(struct siml_iter *p, FILE *fp, const char *filename)
     p->filename = filename ? filename : "<input>";
     p->state = ST_OUTSIDE;
     p->item_index = -1;
-    p->block_list_key[0] = '\0';
+    p->list_key[0] = '\0';
     p->literal_key[0] = '\0';
     return 0;
 }
@@ -695,44 +711,9 @@ siml_iter_destroy(struct siml_iter *p)
     if (!p) {
         return;
     }
+    siml_list_buffer_reset(p);
     siml_block_buffer_reset(p);
     siml_queue_clear(p);
-}
-
-static int
-siml_emit_pending_block_list_if_needed(struct siml_iter *p, long line_no)
-{
-    if (p->state == ST_BLOCK_LIST &&
-        !p->block_list_has_items) {
-        if (p->block_list_pending_scalar) {
-            if (siml_queue_event(p,
-                                 SIML_EVENT_SCALAR,
-                                 p->block_list_key,
-                                 "",
-                                 NULL,
-                                 p->item_index,
-                                 line_no) != 0) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: out of memory",
-                                 p->filename, line_no);
-            }
-        } else {
-            if (siml_queue_event(p,
-                                 SIML_EVENT_LIST_EMPTY,
-                                 p->block_list_key,
-                                 NULL,
-                                 NULL,
-                                 p->item_index,
-                                 line_no) != 0) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: out of memory",
-                                 p->filename, line_no);
-            }
-        }
-    }
-    p->block_list_pending_scalar = 0;
-    p->block_list_has_items = 0;
-    return 0;
 }
 
 static int
@@ -836,79 +817,61 @@ siml_process_line(struct siml_iter *p, char *line)
         return 0;
     }
 
-    if (p->state == ST_BLOCK_LIST) {
-        char *bp = siml_lskip_spaces(line);
-        int indent = (int) (bp - line);
-        int body_offset = 0;
+    if (p->state == ST_INLINE_LIST) {
+        char *closing = strrchr(line, ']');
+        char *segment = line;
+        char *after;
+        char *p_line_in_list = siml_lskip_spaces(line);
+        int indent = (int) (p_line_in_list - line);
 
-        if (siml_is_doc_separator(line)) {
-            if (siml_emit_pending_block_list_if_needed(p, line_no) != 0) {
-                return 1;
-            }
-            p->state = ST_OUTSIDE;
-            return 0;
-        }
-
-        if (siml_is_blank(bp) || siml_is_comment(bp)) {
-            return 0;
-        }
-
-        if (indent >= 2 &&
-            bp[0] == '-' && bp[1] == ' ') {
-            /* block list element */
-            char *elem = bp + 2;
-            char *hash_scan = elem;
-            char *closing_hash = NULL;
-            char last = ' ';
-
-            while (*hash_scan) {
-                if (*hash_scan == '#' &&
-                    (last == ' ' || last == '\t')) {
-                    closing_hash = hash_scan;
-                    break;
-                }
-                last = *hash_scan;
-                hash_scan++;
-            }
-            if (closing_hash) {
-                *closing_hash = '\0';
-            }
-            siml_rstrip_spaces(elem);
-            if (*elem == '\0') {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: empty block list element for key '%s'",
-                                 p->filename, line_no,
-                                 p->block_list_key);
-            }
-            if (siml_queue_event(p,
-                                 SIML_EVENT_LIST_ELEMENT,
-                                 p->block_list_key,
-                                 elem,
-                                 NULL,
-                                 p->item_index,
-                                 line_no) != 0) {
-                return siml_fail(p, line_no,
-                                 "%s:%ld: out of memory",
-                                 p->filename, line_no);
-            }
-            p->block_list_has_items = 1;
-            p->block_list_pending_scalar = 0;
-            return 0;
-        } else if (siml_is_field_line(p, line, indent, &body_offset)) {
-            int rc;
-            char *body = line + body_offset;
-
-            if (siml_emit_pending_block_list_if_needed(p, line_no) != 0) {
-                return 1;
-            }
-            p->state = ST_ITEM;
-            rc = siml_parse_field(p, body, line_no);
-            return rc;
-        } else {
+        if (siml_is_doc_separator(line) ||
+            siml_is_field_line(p, line, indent, NULL)) {
             return siml_fail(p, line_no,
-                             "%s:%ld: expected block list item, field, or document separator",
-                             p->filename, line_no);
+                             "%s:%ld: list for key '%s' missing ']' (started at line %ld)",
+                             p->filename, line_no,
+                             p->list_key,
+                             p->list_start_line ? p->list_start_line : line_no);
         }
+
+        if (!closing) {
+            if (siml_is_blank(p_line_in_list) || siml_is_comment(p_line_in_list)) {
+                return 0;
+            }
+            if (siml_list_buffer_append(p, segment) != 0) {
+                return siml_fail(p, line_no,
+                                 "%s:%ld: out of memory buffering list '%s'",
+                                 p->filename, line_no, p->list_key);
+            }
+            return 0;
+        }
+
+        after = closing + 1;
+        while (*after == ' ' || *after == '\t') {
+            after++;
+        }
+        if (*after != '\0' && *after != '#') {
+            return siml_fail(p, line_no,
+                             "%s:%ld: unexpected text after list for key '%s'",
+                             p->filename, line_no, p->list_key);
+        }
+
+        *closing = '\0';
+        if (siml_list_buffer_append(p, segment) != 0) {
+            return siml_fail(p, line_no,
+                             "%s:%ld: out of memory buffering list '%s'",
+                             p->filename, line_no, p->list_key);
+        }
+
+        if (siml_emit_inline_list(p,
+                                  p->list_key,
+                                  p->list_buffer,
+                                  p->list_start_line ? p->list_start_line : line_no) != 0) {
+            return 1;
+        }
+
+        siml_list_buffer_reset(p);
+        p->state = ST_ITEM;
+        return 0;
     }
 
     p_line = siml_lskip_spaces(line);
@@ -1003,8 +966,14 @@ siml_next(struct siml_iter *p, struct siml_event *ev)
             if (siml_finish_literal_if_needed(p, p->line_no) != 0) {
                 continue;
             }
-            if (siml_emit_pending_block_list_if_needed(p, p->line_no) != 0) {
-                continue;
+            if (p->state == ST_INLINE_LIST) {
+                (void) siml_fail(p, p->line_no,
+                                 "%s:%ld: list for key '%s' missing ']' (started at line %ld)",
+                                 p->filename,
+                                 p->line_no,
+                                 p->list_key[0] ? p->list_key : "<list>",
+                                 p->list_start_line ? p->list_start_line : p->line_no);
+                siml_list_buffer_reset(p);
             }
             p->state = ST_OUTSIDE;
             p->finished = 1;
