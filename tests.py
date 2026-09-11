@@ -20,8 +20,7 @@ def find_build():
 
 root = find_root()
 build = find_build()
-bin_dump = Path(os.environ.get('BIN', build / 'siml-dump'))
-bin_roundtrip = Path(os.environ.get('BIN_ROUNDTRIP', build / 'siml-roundtrip'))
+siml_tool = Path(os.environ.get('SIML_TOOL', build / 'siml-tool'))
 test_dir = root / 'tests'
 
 failed = 0
@@ -36,7 +35,7 @@ for siml in sorted(test_dir.glob('*.siml')):
         if siml.name == 'xfail_io_error.siml':
             env['SIML_TEST_READ_ERROR_AFTER'] = '1'
         result = subprocess.run(
-            [bin_dump, siml],
+            [siml_tool, 'dump', siml],
             capture_output=True,
             text=True,
             env=env,
@@ -53,7 +52,7 @@ for siml in sorted(test_dir.glob('*.siml')):
             failed += 1
         continue
 
-    result = subprocess.run([bin_dump, siml], capture_output=True, text=True)
+    result = subprocess.run([siml_tool, 'dump', siml], capture_output=True, text=True)
     if result.returncode != 0:
         print(f'[test] FAILED (parse error): {siml}', file=sys.stderr)
         failed += 1
@@ -73,7 +72,7 @@ for siml in sorted(test_dir.glob('*.siml')):
             print(f'[test] FAILED (output mismatch): {siml}', file=sys.stderr)
             failed += 1
 
-    result_rt = subprocess.run([bin_roundtrip, siml], capture_output=True, text=True)
+    result_rt = subprocess.run([siml_tool, 'roundtrip', siml], capture_output=True, text=True)
     if result_rt.returncode != 0:
         print(f'[test] FAILED (roundtrip mismatch): {siml}', file=sys.stderr)
         failed += 1
