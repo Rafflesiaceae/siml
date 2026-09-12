@@ -84,6 +84,7 @@ A conforming round-tripping parser MUST preserve:
   - block sequence vs flow sequence
 * all **comment lines**, **exactly** as they appeared, including indentation and
   spacing.
+* the optional **shebang line**, exactly as it appeared.
 * for each **inline comment**, the exact number of spaces that preceded the
   comment ``#`` on that line (see 5.2).
 
@@ -184,6 +185,7 @@ length.
 This maximum applies to **all** lines, including:
 
 * structural lines (mapping entries, sequence items, document separators),
+* the optional shebang line,
 * comment lines,
 * and literal block scalar content lines.
 
@@ -191,7 +193,36 @@ This maximum applies to **all** lines, including:
 4. Document stream
 ==================
 
-4.1 Document separators
+4.1 Shebang line
+----------------
+
+A SIML stream MAY begin with exactly one shebang line of the form:
+
+* ``#!TEXT``
+
+where ``TEXT`` is non-empty. The shebang line:
+
+* MUST be the first physical line of the stream
+* MUST begin at byte offset 0 (it has no indentation)
+* MUST contain at most **512 bytes** after the ``#!`` prefix
+* is stream-level concrete-syntax trivia and is not part of the semantic data
+  model
+* MUST be preserved verbatim for round-trip
+
+No comment or inline-comment recognition is performed within a shebang line;
+all bytes after ``#!`` are shebang text. The ordinary UTF-8, LF, tab,
+trailing-space, and physical-line-length rules still apply.
+
+For the pull-parser interface, the shebang is emitted as a ``COMMENT`` event
+whose value is the complete line without its terminating LF. This avoids a
+distinct event type for trivia that consumers can already preserve verbatim.
+
+A line beginning with ``#!`` anywhere other than the first physical line is
+not a shebang. Outside literal block scalar content it is also not an ordinary
+comment because it does not have the required ``"# "`` prefix.
+
+
+4.2 Document separators
 -----------------------
 
 Documents are separated by a line that is exactly:
@@ -211,10 +242,10 @@ Operational note:
   invalid cases separately (before the first document vs after the last
   document) per section 10.
 
-4.2 Leading and inter-document trivia
+4.3 Leading and inter-document trivia
 -------------------------------------
 
-Only comment lines (section 5) MAY appear:
+After an optional shebang line, only comment lines (section 5) MAY appear:
 
 * before the first document,
 * between documents (before or after ``---``),
@@ -872,9 +903,13 @@ SIML forbids (MUST NOT support):
 
 .. code-block:: text
 
-   stream          ::= comment* (document (comment* separator comment* document)*)? comment* EOF
+   stream          ::= shebang? comment* (document (comment* separator comment* document)*)? comment* EOF
 
-   ; Per section 4.1, '---' MUST NOT have inline comments.
+   ; A shebang is permitted only as the first physical line (section 4.1).
+   ; Its text is non-empty and is limited to 512 bytes.
+   shebang         ::= '#!' NONEMPTY_TEXT EOL
+
+   ; Per section 4.2, '---' MUST NOT have inline comments.
    separator       ::= '---' EOL
 
    document        ::= non_scalar_node_at_indent(0)
@@ -962,6 +997,7 @@ These restrictions are chosen so a reference parser can be implemented as:
 * plus minimal scanning (``strncmp``, ``strchr``),
 * with round-trip support by storing:
   - node style (block vs flow sequences; plain vs literal scalars)
+  - the optional shebang line verbatim
   - comment lines verbatim in their encountered positions
   - for each inline comment: the count of spaces preceding ``#`` (alignment),
     and the (non-empty) comment text after the required ``"# "`` prefix.
@@ -995,7 +1031,8 @@ file.
   - ``SEQUENCE_START`` / ``SEQUENCE_END`` — sequence container open/close.
     Key is empty when preceded by ``MAPPING_ENTRY_HEADER``.
   - ``SCALAR`` — a scalar value with its key (if inside a mapping).
-  - ``COMMENT`` — a comment line, including its indentation and text.
+  - ``COMMENT`` — a comment line, including its indentation and text, or the
+    optional first-line shebang in its entirety.
 
 * All variable-sized buffers are held in a caller-supplied scratch buffer.
   Both the parser object and the scratch buffer may be stack- or

@@ -175,7 +175,8 @@ typedef int (*siml_read_line_fn)(void *userdata,
  *  - For sequence items, key is empty.
  *  - For SCALAR, value is the scalar text.
  *  - For BLOCK_SCALAR_LINE, value is the line text (without indent).
- *  - For COMMENT, value is the entire line (without the trailing LF).
+ *  - For COMMENT, value is the entire comment or shebang line (without the
+ *    trailing LF).
  *  - For MAPPING_ENTRY_HEADER, key is the mapping key from a header-only
  *    "key:\n" line. The following MAPPING_START or SEQUENCE_START will have
  *    an empty key (delivered here). COMMENT events between the header line
@@ -577,6 +578,27 @@ static int siml_parse_comment_line(siml_parser *p, const char *s, size_t len,
 
     if (!siml_count_indent(p, s, len, &indent)) return -1;
     *out_indent = indent;
+
+    /* A shebang is a special comment form accepted only at byte offset zero
+     * on the first physical line. It is emitted as an ordinary COMMENT event
+     * so callers can preserve it without a separate event type.
+     */
+    if (p->line_no == 1 && indent == 0 &&
+        len >= 2 && s[0] == '#' && s[1] == '!') {
+        if (len == 2) {
+            siml_set_error(p, SIML_ERR_EMPTY_COMMENT,
+                           "empty comment is forbidden");
+            return -1;
+        }
+        text_len = len - 2;
+        if (text_len > SIML_MAX_COMMENT_TEXT_LEN) {
+            siml_set_error(p, SIML_ERR_COMMENT_TOO_LONG,
+                           "comment text too long (max 512 bytes)");
+            return -1;
+        }
+        return 1;
+    }
+
     if (indent >= len) return 0;
     if (s[indent] != '#') return 0;
     if (indent + 1 >= len) {
