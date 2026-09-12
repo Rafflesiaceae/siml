@@ -59,7 +59,10 @@ for siml in sorted(test_dir.glob('*.siml')):
         continue
 
     gold = siml.with_suffix('.gold')
-    if gold.exists():
+    if not gold.exists():
+        gold.write_text(result.stdout)
+        print(f'[test] generated {gold}')
+    else:
         expected = gold.read_text()
         if result.stdout != expected:
             diff = difflib.unified_diff(
