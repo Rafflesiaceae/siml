@@ -77,4 +77,11 @@ for siml in sorted(test_dir.glob('*.siml')):
         print(f'[test] FAILED (roundtrip mismatch): {siml}', file=sys.stderr)
         failed += 1
 
+    result_verify = subprocess.run([siml_tool, siml], capture_output=True, text=True)
+    if result_verify.returncode != 0 or result_verify.stdout or result_verify.stderr:
+        print(f'[test] FAILED (implicit verify): {siml}', file=sys.stderr)
+        print(result_verify.stdout, file=sys.stderr, end='')
+        print(result_verify.stderr, file=sys.stderr, end='')
+        failed += 1
+
 sys.exit(1 if failed else 0)

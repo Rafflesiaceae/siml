@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "siml.h"
 
@@ -641,18 +642,27 @@ static int cmd_roundtrip(int argc, char **argv) {
 
 static void print_help(const char *prog) {
     (void)printf(
-        "Usage: %s <subcommand> <file.siml>\n"
+        "Usage: %s [<subcommand>] <file.siml>\n"
         "\n"
         "Subcommands:\n"
         "  verify    <file>  Parse and validate; silent on success, exits 1 on error.\n"
         "  dump      <file>  Parse and print a human-readable event trace to stdout.\n"
         "  roundtrip <file>  Parse, reconstruct, and compare byte-for-byte with input.\n"
         "\n"
+        "An existing file may be passed without a subcommand; verify is used.\n"
         "Pass '-' as <file> to read from stdin (verify and dump only).\n",
         prog);
 }
 
+static int is_regular_file(const char *path) {
+    struct stat path_stat;
+
+    return stat(path, &path_stat) == 0 && S_ISREG(path_stat.st_mode);
+}
+
 int main(int argc, char **argv) {
+    char *verify_argv[3];
+
     if (argc < 2) {
         print_help(argv[0]);
         return 1;
@@ -664,6 +674,12 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "verify")    == 0) return cmd_verify(argc, argv);
     if (strcmp(argv[1], "dump")      == 0) return cmd_dump(argc, argv);
     if (strcmp(argv[1], "roundtrip") == 0) return cmd_roundtrip(argc, argv);
+    if (argc == 2 && is_regular_file(argv[1])) {
+        verify_argv[0] = argv[0];
+        verify_argv[1] = "verify";
+        verify_argv[2] = argv[1];
+        return cmd_verify(3, verify_argv);
+    }
 
     (void)fprintf(stderr, "%s: unknown subcommand '%s'\n"
                           "Run '%s --help' for usage.\n",
