@@ -1,5 +1,5 @@
 STREAM_START
-COMMENT #!/usr/bin/env siml-tool
+SHEBANG /usr/bin/env siml-tool
 DOCUMENT_START
 MAPPING_START
 SCALAR key=name value='shebang'

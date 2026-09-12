@@ -213,9 +213,9 @@ No comment or inline-comment recognition is performed within a shebang line;
 all bytes after ``#!`` are shebang text. The ordinary UTF-8, LF, tab,
 trailing-space, and physical-line-length rules still apply.
 
-For the pull-parser interface, the shebang is emitted as a ``COMMENT`` event
-whose value is the complete line without its terminating LF. This avoids a
-distinct event type for trivia that consumers can already preserve verbatim.
+For the pull-parser interface, the shebang is emitted as a ``SHEBANG`` event.
+Its value is the exact shebang text after the ``#!`` prefix, without the
+terminating LF.
 
 A line beginning with ``#!`` anywhere other than the first physical line is
 not a shebang. Outside literal block scalar content it is also not an ordinary
@@ -803,6 +803,12 @@ Line endings and physical line length:
 * CR is forbidden (``\r`` found)
 * physical line too long (max 4608 bytes)
 
+Shebang:
+
+* shebang must not be empty
+* shebang is only allowed on the first physical line at byte offset 0
+* shebang text too long (max 512 bytes)
+
 Whitespace rules:
 
 * blank lines are not allowed here
@@ -1031,8 +1037,9 @@ file.
   - ``SEQUENCE_START`` / ``SEQUENCE_END`` — sequence container open/close.
     Key is empty when preceded by ``MAPPING_ENTRY_HEADER``.
   - ``SCALAR`` — a scalar value with its key (if inside a mapping).
-  - ``COMMENT`` — a comment line, including its indentation and text, or the
-    optional first-line shebang in its entirety.
+  - ``SHEBANG`` — the optional first-line shebang. Its value is the exact text
+    after the ``#!`` prefix.
+  - ``COMMENT`` — a comment line, including its indentation and text.
 
 * All variable-sized buffers are held in a caller-supplied scratch buffer.
   Both the parser object and the scratch buffer may be stack- or

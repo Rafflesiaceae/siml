@@ -46,6 +46,10 @@ extern "C" {
 #define SIML_MAX_COMMENT_TEXT_LEN 512
 #endif
 
+#ifndef SIML_MAX_SHEBANG_TEXT_LEN
+#define SIML_MAX_SHEBANG_TEXT_LEN 512
+#endif
+
 #ifndef SIML_MAX_INLINE_COMMENT_TEXT_LEN
 #define SIML_MAX_INLINE_COMMENT_TEXT_LEN 256
 #endif
@@ -67,6 +71,9 @@ typedef enum siml_error_code {
     SIML_ERR_CRLF,
     SIML_ERR_CR,
     SIML_ERR_LINE_TOO_LONG,
+    SIML_ERR_SHEBANG_EMPTY,
+    SIML_ERR_SHEBANG_POSITION,
+    SIML_ERR_SHEBANG_TOO_LONG,
     SIML_ERR_BLANK_LINE,
     SIML_ERR_WHITESPACE_ONLY,
     SIML_ERR_TABS,
@@ -136,6 +143,7 @@ typedef enum siml_event_type {
     SIML_EVENT_MAPPING_END,
     SIML_EVENT_DOCUMENT_END,
     SIML_EVENT_STREAM_END,
+    SIML_EVENT_SHEBANG,
     SIML_EVENT_COMMENT,
     SIML_EVENT_MAPPING_ENTRY_HEADER,
     SIML_EVENT_ERROR
@@ -175,8 +183,8 @@ typedef int (*siml_read_line_fn)(void *userdata,
  *  - For sequence items, key is empty.
  *  - For SCALAR, value is the scalar text.
  *  - For BLOCK_SCALAR_LINE, value is the line text (without indent).
- *  - For COMMENT, value is the entire comment or shebang line (without the
- *    trailing LF).
+ *  - For SHEBANG, value is the exact text after the "#!" prefix.
+ *  - For COMMENT, value is the entire comment line (without the trailing LF).
  *  - For MAPPING_ENTRY_HEADER, key is the mapping key from a header-only
  *    "key:\n" line. The following MAPPING_START or SEQUENCE_START will have
  *    an empty key (delivered here). COMMENT events between the header line
@@ -578,26 +586,6 @@ static int siml_parse_comment_line(siml_parser *p, const char *s, size_t len,
 
     if (!siml_count_indent(p, s, len, &indent)) return -1;
     *out_indent = indent;
-
-    /* A shebang is a special comment form accepted only at byte offset zero
-     * on the first physical line. It is emitted as an ordinary COMMENT event
-     * so callers can preserve it without a separate event type.
-     */
-    if (p->line_no == 1 && indent == 0 &&
-        len >= 2 && s[0] == '#' && s[1] == '!') {
-        if (len == 2) {
-            siml_set_error(p, SIML_ERR_EMPTY_COMMENT,
-                           "empty comment is forbidden");
-            return -1;
-        }
-        text_len = len - 2;
-        if (text_len > SIML_MAX_COMMENT_TEXT_LEN) {
-            siml_set_error(p, SIML_ERR_COMMENT_TOO_LONG,
-                           "comment text too long (max 512 bytes)");
-            return -1;
-        }
-        return 1;
-    }
 
     if (indent >= len) return 0;
     if (s[indent] != '#') return 0;
@@ -1482,6 +1470,44 @@ static siml_event_type siml_next_normal(siml_parser *p, siml_event *ev) {
                 trimmed_len -= 1;
             }
             has_trailing_spaces = (trimmed_len != p->line_len);
+
+            {
+                size_t shebang_pos = 0;
+                while (shebang_pos < trimmed_len &&
+                       s[shebang_pos] == ' ') {
+                    shebang_pos += 1;
+                }
+                if (shebang_pos + 1 < trimmed_len &&
+                    s[shebang_pos] == '#' && s[shebang_pos + 1] == '!') {
+                    if (p->line_no != 1 || shebang_pos != 0) {
+                        siml_set_error(
+                            p, SIML_ERR_SHEBANG_POSITION,
+                            "shebang is only allowed on the first physical "
+                            "line at byte offset 0");
+                        return SIML_EVENT_ERROR;
+                    }
+                    if (has_trailing_spaces) {
+                        siml_set_error(p, SIML_ERR_TRAILING_SPACES,
+                                       "trailing spaces are not allowed here");
+                        return SIML_EVENT_ERROR;
+                    }
+                    if (trimmed_len == 2) {
+                        siml_set_error(p, SIML_ERR_SHEBANG_EMPTY,
+                                       "shebang must not be empty");
+                        return SIML_EVENT_ERROR;
+                    }
+                    if (trimmed_len - 2 > SIML_MAX_SHEBANG_TEXT_LEN) {
+                        siml_set_error(p, SIML_ERR_SHEBANG_TOO_LONG,
+                                       "shebang text too long (max 512 bytes)");
+                        return SIML_EVENT_ERROR;
+                    }
+                    ev->type = SIML_EVENT_SHEBANG;
+                    ev->value = siml_make_slice(s + 2, trimmed_len - 2);
+                    ev->line = p->line_no;
+                    p->have_line = 0;
+                    return ev->type;
+                }
+            }
 
             comment_rc = siml_parse_comment_line(p, s, trimmed_len, &indent);
             if (comment_rc < 0) return SIML_EVENT_ERROR;

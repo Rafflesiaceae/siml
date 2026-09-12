@@ -201,6 +201,12 @@ static int run_roundtrip(const uint8_t *data, size_t size) {
                 ok = buf_append(&out, "---", 3) && buf_append_char(&out, '\n');
             break;
 
+        case SIML_EVENT_SHEBANG:
+            ok = buf_append(&out, "#!", 2) &&
+                 buf_append(&out, ev.value.ptr, ev.value.len) &&
+                 buf_append_char(&out, '\n');
+            break;
+
         case SIML_EVENT_COMMENT:
             ok = buf_append(&out, ev.value.ptr, ev.value.len) &&
                  buf_append_char(&out, '\n');

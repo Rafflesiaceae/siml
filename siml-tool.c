@@ -308,6 +308,11 @@ static int cmd_dump(int argc, char **argv) {
         case SIML_EVENT_BLOCK_SCALAR_END:
             (void)printf("BLOCK_SCALAR_END\n");
             break;
+        case SIML_EVENT_SHEBANG:
+            (void)printf("SHEBANG ");
+            print_slice(&ev.value);
+            (void)printf("\n");
+            break;
         case SIML_EVENT_COMMENT:
             (void)printf("COMMENT ");
             print_slice(&ev.value);
@@ -473,6 +478,12 @@ static int cmd_roundtrip(int argc, char **argv) {
                 if (!buf_append(&out, "---", 3) || !buf_append_char(&out, '\n'))
                     rc = 1;
             }
+            break;
+        case SIML_EVENT_SHEBANG:
+            if (!buf_append(&out, "#!", 2) ||
+                !buf_append(&out, ev.value.ptr, ev.value.len) ||
+                !buf_append_char(&out, '\n'))
+                rc = 1;
             break;
         case SIML_EVENT_COMMENT:
             if (!buf_append(&out, ev.value.ptr, ev.value.len) ||
