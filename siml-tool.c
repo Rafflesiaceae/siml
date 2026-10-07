@@ -1273,19 +1273,20 @@ static int cmd_fixup(int argc, char **argv) {
 
                 if (use_folded) {
                     /* The folded content replaces the YAML marker in-line. */
-                    rc = fixup_emit_structural(&out, line, trimmed, &info,
+                    if (!fixup_emit_structural(&out, line, trimmed, &info,
                                                folded_text.data,
-                                               folded_text.len, 1);
+                                               folded_text.len, 1)) rc = 1;
                 } else {
                     /* SIML supports literal blocks, so retain complex content. */
                     char literal_marker = '|';
-                    rc = fixup_emit_structural(&out, line, trimmed, &info,
-                                               &literal_marker, 1, 1);
+                    if (!fixup_emit_structural(&out, line, trimmed, &info,
+                                               &literal_marker, 1, 1)) rc = 1;
                 }
-                if (rc == 0 && !use_folded && first_content != (size_t)-1) {
-                    rc = fixup_emit_literal_content(&out, file_data, &lines,
-                                                    first_content, last_content,
-                                                    info.indent, content_indent);
+                if (rc == 0 && !use_folded && first_content != (size_t)-1 &&
+                    !fixup_emit_literal_content(&out, file_data, &lines,
+                                                first_content, last_content,
+                                                info.indent, content_indent)) {
+                    rc = 1;
                 }
                 free(folded_text.data);
                 i = block_end - 1;
@@ -1294,7 +1295,8 @@ static int cmd_fixup(int argc, char **argv) {
         }
 
         if (parsed) {
-            rc = fixup_emit_structural(&out, line, trimmed, &info, NULL, 0, 0);
+            if (!fixup_emit_structural(&out, line, trimmed, &info, NULL, 0, 0))
+                rc = 1;
         } else {
             /* Keep unrelated YAML syntax visible for the final parser error. */
             if (!buf_append(&out, line, trimmed) ||
